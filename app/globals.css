@@ -43,3 +43,6 @@
   .assignment h2, .student-assignment h2 { font-size: 21px; }
   .login-card small, .feedback strong { font-size: 12px; }
 }
+
+/* Empty assignment state spans both columns so its message stays centered. */
+.assignment-grid > .empty { grid-column: 1 / -1; min-height: 220px; display: flex; flex-direction: column; align-items: center; justify-content: center; }
