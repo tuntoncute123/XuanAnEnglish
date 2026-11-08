@@ -51,7 +51,7 @@ with tempfile.TemporaryDirectory(prefix='an-english-test-') as directory:
             assert call('/api/login', {'password':password})[0] == 200
             page_status, page_html = call('/')
             assert page_status == 200, (page_status, page_html)
-            assert 'LỚP HỌC CỦA AN'.encode() in page_html
+            assert 'Đang mở lớp học'.encode() in page_html
             assert b'Only plain objects' not in page_html
             status, data = call('/api/manage')
             assert status == 200 and len(data['classes']) == 3 and len(data['students']) == 9
