@@ -6,7 +6,7 @@ const attempts=new Map<string,{count:number,until:number}>();
 export async function POST(req:Request){
  if(!sameOrigin(req))return Response.json({error:'Yêu cầu không hợp lệ.'},{status:403});
  const password=process.env.ADMIN_PASSWORD;
- if(!password||password.length<12)return Response.json({error:'Hãy cấu hình ADMIN_PASSWORD (ít nhất 12 ký tự) trong .env.local rồi khởi động lại.'},{status:503});
+ if(!password||password.length<10)return Response.json({error:'Hãy cấu hình ADMIN_PASSWORD (ít nhất 10 ký tự) rồi khởi động lại.'},{status:503});
  const key='login',current=attempts.get(key);
  if(current&&current.until>Date.now()&&current.count>=10)return Response.json({error:'Thử lại sau 5 phút.'},{status:429});
  let body;try{body=await req.json()}catch{return Response.json({error:'Dữ liệu không hợp lệ.'},{status:400})}

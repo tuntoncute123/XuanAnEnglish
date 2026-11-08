@@ -7,7 +7,7 @@ Web quản lý lớp tiếng Anh bằng **Next.js App Router + TypeScript**, bac
 ```bash
 npm install
 cp .env.example .env.local
-# Đổi ADMIN_PASSWORD trong .env.local thành mật khẩu riêng ít nhất 12 ký tự.
+# Đổi ADMIN_PASSWORD trong .env.local thành mật khẩu riêng ít nhất 10 ký tự.
 npm run dev
 ```
 
