@@ -10,13 +10,17 @@ import time
 import urllib.error
 import urllib.request
 
+database_url = os.environ.get('TEST_DATABASE_URL')
+if not database_url or not database_url.split('?', 1)[0].rstrip('/').endswith('_test'):
+    raise SystemExit('Set TEST_DATABASE_URL to a dedicated PostgreSQL database ending in _test')
+
 with tempfile.TemporaryDirectory(prefix='an-english-test-') as directory:
     with socket.socket() as sock:
         sock.bind(('127.0.0.1', 0))
         port = sock.getsockname()[1]
     base = f'http://127.0.0.1:{port}'
     password = secrets.token_urlsafe(24)
-    env = {**os.environ, 'DATA_DIR': directory, 'ADMIN_PASSWORD': password}
+    env = {**os.environ, 'DATA_DIR': directory, 'DATABASE_URL': database_url, 'SEED_DEMO_DATA': 'true', 'ADMIN_PASSWORD': password, 'SESSION_SECRET': secrets.token_hex(48)}
     with tempfile.TemporaryFile() as log:
         proc = subprocess.Popen(['node', 'node_modules/next/dist/bin/next', 'start', '--hostname', '127.0.0.1', '--port', str(port)], env=env, stdout=log, stderr=log)
         client = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
