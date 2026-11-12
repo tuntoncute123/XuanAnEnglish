@@ -1,6 +1,43 @@
 import type { NextConfig } from 'next';
-const config:NextConfig={
- async rewrites(){return process.env.FRONTEND_BACKEND === '1' ? [] : {beforeFiles:[{source:'/api/:path*',destination:'https://api-xuanan.163.61.72.199.nip.io/api/:path*'}],afterFiles:[],fallback:[]}},
- async headers(){return [{source:'/:path*',headers:[{key:'X-Content-Type-Options',value:'nosniff'},{key:'Referrer-Policy',value:'no-referrer'},{key:'X-Frame-Options',value:'DENY'}]},{source:'/api/:path*',headers:[{key:'Cache-Control',value:'private, no-store'}]}]}
+
+const config: NextConfig = {
+  async rewrites() {
+    return process.env.FRONTEND_BACKEND === '1'
+      ? []
+      : {
+          beforeFiles: [
+            {
+              source: '/api/:path*',
+              destination: 'https://api-xuanan.163.61.72.199.nip.io/api/:path*',
+            },
+          ],
+          afterFiles: [],
+          fallback: [],
+        };
+  },
+  async headers() {
+    return [
+      {
+        source: '/:path*',
+        headers: [
+          { key: 'X-Content-Type-Options', value: 'nosniff' },
+          { key: 'Referrer-Policy', value: 'no-referrer' },
+          { key: 'X-Frame-Options', value: 'DENY' },
+        ],
+      },
+      {
+        source: '/api/:path*',
+        headers: [{ key: 'Cache-Control', value: 'private, no-store' }],
+      },
+      {
+        source: '/sw.js',
+        headers: [
+          { key: 'Cache-Control', value: 'no-cache, no-store, must-revalidate' },
+          { key: 'Service-Worker-Allowed', value: '/' },
+        ],
+      },
+    ];
+  },
 };
+
 export default config;

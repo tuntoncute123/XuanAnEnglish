@@ -20,7 +20,7 @@ with tempfile.TemporaryDirectory(prefix='an-english-test-') as directory:
         port = sock.getsockname()[1]
     base = f'http://127.0.0.1:{port}'
     password = secrets.token_urlsafe(24)
-    env = {**os.environ, 'DATA_DIR': directory, 'DATABASE_URL': database_url, 'SEED_DEMO_DATA': 'true', 'ADMIN_PASSWORD': password, 'SESSION_SECRET': secrets.token_hex(48)}
+    env = {**os.environ, 'FRONTEND_BACKEND': '1', 'DATA_DIR': directory, 'DATABASE_URL': database_url, 'SEED_DEMO_DATA': 'true', 'ADMIN_PASSWORD': password, 'SESSION_SECRET': secrets.token_hex(48)}
     with tempfile.TemporaryFile() as log:
         proc = subprocess.Popen(['node', 'node_modules/next/dist/bin/next', 'start', '--hostname', '127.0.0.1', '--port', str(port)], env=env, stdout=log, stderr=log)
         client = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
@@ -92,9 +92,35 @@ with tempfile.TemporaryDirectory(prefix='an-english-test-') as directory:
             assert call(file_path+'?token='+other['token'], opener=guest)[0] == 403
             assert call(portal, {'assignment_id':assignment['id'],'answer':'Attached','file_id':uploaded['id']}, opener=guest)[0] == 200
             assert call(file_path)[0] == 200
+            assert call('/student', opener=guest)[0] == 200
+            assert call('/manifest.webmanifest', opener=guest)[0] == 200
+            assert call('/sw.js', opener=guest)[0] == 200
+            assert call('/icons/icon-192.png', opener=guest)[0] == 200
+            assert call('/api/student/me', opener=guest)[0] == 401
+            assert call('/api/manage', {'action':'student_account','student_id':student['id'],'username':'test_student_1','password':'password123'})[0] == 200
+            student_client = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+            assert call('/api/student/login', {'username':'test_student_1','password':'wrong'}, opener=student_client)[0] == 401
+            assert call('/api/student/login', {'username':'test_student_1','password':'password123'}, opener=student_client)[0] == 200
+            me_status, me_data = call('/api/student/me', opener=student_client)
+            assert me_status == 200 and me_data['student']['id'] == student['id'] and 'phone' not in me_data['student']
+            assert len(me_data['notifications']) >= 1 and len(me_data['vapidPublicKey']) > 10
+            assert call('/api/student/push', {'endpoint':'https://fcm.googleapis.com/fcm/send/demo-endpoint-1','keys':{'p256dh':'BEl62iUYgUivxIkv69yViEuiBIa','auth':'tBHItJI5svbpez7KI4CCXg'},'deviceLabel':'Android'}, opener=student_client)[0] == 200
+            assert call('/api/student/me', {'assignment_id':assignment['id'],'answer':'Cross-device answer','file_id':uploaded['id']}, opener=student_client)[0] == 200
+            assert call('/api/manage', {'action':'bank','bankId':'VCB','accountNo':'0123456789','accountName':'XUAN AN'})[0] == 200
+            assert call('/api/manage', {'action':'assignment','class_id':1,'title':'Quiz 1','instructions':'Choose','deadline':'2026-12-02','file_id':None,'questions':[{'id':'q1','prompt':'Cat?','options':['Cat','Dog'],'correctIndex':0}]})[0] == 200
+            _, me_quiz = call('/api/student/me', opener=student_client)
+            quiz_item = next(a for a in me_quiz['assignments'] if a['title'] == 'Quiz 1')
+            assert 'correctIndex' not in quiz_item['questions'][0] and me_quiz['monthlySummary']['bank']['bankId'] == 'VCB'
+            assert call('/api/student/me', {'assignment_id':quiz_item['id'],'answer':'','file_ids':[uploaded['id']],'quiz_answers':{'q1':0}}, opener=student_client)[0] == 200
+            _, me_after_quiz = call('/api/student/me', opener=student_client)
+            quiz_sub = next(s for s in me_after_quiz['submissions'] if s['assignment_id'] == quiz_item['id'])
+            assert '1/1' in quiz_sub['score'] and len(quiz_sub['attachments']) == 1
+            assert call('/api/cron/reminders', {})[0] == 200
+            assert call('/api/student/logout', {'endpoint':'https://fcm.googleapis.com/fcm/send/demo-endpoint-1'}, opener=student_client)[0] == 200
+            assert call('/api/student/me', opener=student_client)[0] == 401
             assert call('/api/logout', {})[0] == 200
             assert call('/api/manage')[0] == 401
-            print('PASS: login, CSRF, protected data, seed, attendance, payment, validation, student creation, scheduling, assignment, student submission, feedback, file upload/access isolation and logout')
+            print('PASS: all teacher CRUD, recurring schedule, quiz auto-grading, multi-attachments, VietQR, student accounts, PWA/Web Push, cron reminders, and logout')
         except Exception:
             log.seek(0)
             print(log.read().decode()[-6000:])
