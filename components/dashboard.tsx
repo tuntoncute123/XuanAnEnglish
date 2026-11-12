@@ -7,8 +7,6 @@ import {
   BookOpen,
   CalendarDays,
   Check,
-  ChevronLeft,
-  ChevronRight,
   ClipboardCheck,
   Copy,
   Download,
@@ -31,6 +29,9 @@ import {
 } from 'lucide-react';
 import type { Assignment, Attendance, Class, Data, QuizQuestion, Session, Student } from '@/lib/types';
 import { monthlyReport } from '@/lib/report';
+import SessionForm from './session-form';
+import ScheduleBoard from './schedule-board';
+import { assignmentReminder, notificationErrorMessage } from '@/lib/notification';
 
 const money = (n: number) => new Intl.NumberFormat('vi-VN').format(n) + ' đ';
 const today = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
@@ -76,6 +77,7 @@ export default function Dashboard({ initial }: { initial: Data }) {
   const [accountStudent, setAccountStudent] = useState<Student | null>(null);
   const [accountUsername, setAccountUsername] = useState('');
   const [accountPassword, setAccountPassword] = useState('');
+  const [savedCredentials, setSavedCredentials] = useState<{ username: string; password: string } | null>(null);
   const [newStudentPassword, setNewStudentPassword] = useState('');
 
   const [editingClass, setEditingClass] = useState<Class | null>(null);
@@ -117,6 +119,8 @@ export default function Dashboard({ initial }: { initial: Data }) {
   function closeModals() {
     setModal('');
     setAccountStudent(null);
+    setAccountPassword('');
+    setSavedCredentials(null);
     setEditingClass(null);
     setEditingStudent(null);
     setEditingSession(null);
@@ -125,7 +129,7 @@ export default function Dashboard({ initial }: { initial: Data }) {
     setQuizDrafts([]);
   }
 
-  async function save(body: unknown, customToast?: string) {
+  async function save(body: unknown, customToast?: string, onSaved?: (snapshot: Data) => void) {
     setBusy(true);
     setError('');
     try {
@@ -135,10 +139,12 @@ export default function Dashboard({ initial }: { initial: Data }) {
         body: JSON.stringify(body),
       });
       const d = await r.json();
-      if (!r.ok) throw Error(d.error);
+      if (!r.ok) throw Error(notificationErrorMessage(body, r.status, d));
       const { notify_summary, ...snapshotData } = d;
       setData(snapshotData as Data);
-      closeModals();
+      setSelected(previous => previous ? (snapshotData.sessions as Session[]).find(s => s.id === previous.id && s.class_id === previous.class_id && s.status !== 'cancelled') || null : null);
+      if (onSaved) onSaved(snapshotData as Data);
+      else closeModals();
       if (notify_summary) {
         notify(
           `Đã gửi thông báo cho ${notify_summary.notifiedStudents} học viên (${notify_summary.sent} thiết bị nhận Web Push)`,
@@ -203,6 +209,7 @@ export default function Dashboard({ initial }: { initial: Data }) {
     setAccountStudent(s);
     setAccountUsername(s.username || '');
     setAccountPassword('');
+    setSavedCredentials(s.has_password && s.username ? { username: s.username, password: '' } : null);
   }
 
   async function copyCredentials(username: string, password: string) {
@@ -222,8 +229,7 @@ export default function Dashboard({ initial }: { initial: Data }) {
     }
   }
 
-  const todaySessions = data.sessions.filter(s => s.date === today());
-  const sessions = data.sessions.filter(s => s.date === day && (!filter || s.class_id === filter));
+  const todaySessions = data.sessions.filter(s => s.date === today() && s.status !== 'cancelled');
 
   function renderClassSelect(defaultVal?: number) {
     return (
@@ -238,12 +244,6 @@ export default function Dashboard({ initial }: { initial: Data }) {
         </select>
       </label>
     );
-  }
-
-  function shiftDay(n: number) {
-    const d = new Date(day + 'T12:00:00');
-    d.setDate(d.getDate() + n);
-    setDay(d.toLocaleDateString('en-CA'));
   }
 
   function exportReport() {
@@ -648,59 +648,10 @@ export default function Dashboard({ initial }: { initial: Data }) {
           )}
 
           {tab === 'schedule' && (
-            <section className="panel">
-              <div className="section-heading">
-                <div>
-                  <h2>Lịch giảng dạy</h2>
-                  <p>{dateLabel(day)}</p>
-                </div>
-                <div className="inline">
-                  <button className="icon-button" aria-label="Ngày trước" onClick={() => shiftDay(-1)}>
-                    <ChevronLeft size={18} />
-                  </button>
-                  <input aria-label="Chọn ngày" type="date" value={day} onChange={e => setDay(e.target.value || today())} />
-                  <button className="icon-button" aria-label="Ngày sau" onClick={() => shiftDay(1)}>
-                    <ChevronRight size={18} />
-                  </button>
-                  <button className="secondary" onClick={() => setDay(today())}>
-                    Hôm nay
-                  </button>
-                </div>
-              </div>
-              {sessions.length ? (
-                sessions.map(s => (
-                  <div className="session-row" key={s.id}>
-                    <div className="time">
-                      <strong>{s.time}</strong>
-                      <small>{s.duration} phút</small>
-                    </div>
-                    <div className={'session-line ' + currentClass(s.class_id)?.color} />
-                    <div className="session-info">
-                      <strong>{currentClass(s.class_id)?.name}</strong>
-                      <p>{s.topic}</p>
-                    </div>
-                    <div className="inline">
-                      <button
-                        className="icon-button"
-                        aria-label="Sửa buổi học"
-                        onClick={() => {
-                          setError('');
-                          setConfirmDelete(false);
-                          setEditingSession(s);
-                        }}
-                      >
-                        <Pencil size={15} />
-                      </button>
-                      <button className="soft-button" onClick={() => openSession(s)}>
-                        Điểm danh <ArrowUpRight size={16} />
-                      </button>
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <Empty text="Ngày này chưa có buổi học. Thêm buổi học để bắt đầu." />
-              )}
-            </section>
+            <ScheduleBoard data={data} day={day} filter={filter} onDay={setDay}
+              onCreate={() => { setError(''); setModal('session'); }}
+              onEdit={session => { setError(''); setEditingSession(session); }}
+              onAttendance={openSession} />
           )}
 
           {tab === 'classes' && (
@@ -949,7 +900,7 @@ export default function Dashboard({ initial }: { initial: Data }) {
                   <h2>Chọn buổi học để điểm danh</h2>
                 </div>
                 {data.sessions
-                  .filter(s => !filter || s.class_id === filter)
+                  .filter(s => s.status !== 'cancelled' && (!filter || s.class_id === filter))
                   .slice()
                   .reverse()
                   .map(s => (
@@ -966,7 +917,7 @@ export default function Dashboard({ initial }: { initial: Data }) {
                       <ArrowUpRight size={18} />
                     </button>
                   ))}
-                {!data.sessions.length && <Empty text="Thêm buổi học để bắt đầu điểm danh." />}
+                {!data.sessions.some(s => s.status !== 'cancelled' && (!filter || s.class_id === filter)) && <Empty text="Chưa có buổi học để điểm danh. Hãy thêm hoặc khôi phục lịch học." />}
               </section>
             ))}
 
@@ -1029,14 +980,7 @@ export default function Dashboard({ initial }: { initial: Data }) {
                           <button
                             className="soft-button"
                             disabled={busy}
-                            onClick={() =>
-                              save({
-                                action: 'notify',
-                                assignment_id: a.id,
-                                title: `Nhắc làm bài: ${a.title}`,
-                                body: `Hạn nộp ${a.deadline.split('-').reverse().join('/')} · Con nhớ hoàn thành và nộp bài cho cô An nhé!`,
-                              })
-                            }
+                            onClick={() => save(assignmentReminder(a))}
                           >
                             <Bell size={14} /> Nhắc {unsubmittedCount} bạn chưa nộp
                           </button>
@@ -1365,7 +1309,9 @@ export default function Dashboard({ initial }: { initial: Data }) {
       )}
 
       {/* Create / Notify Modal */}
-      {modal && (
+      {modal === 'session' && <SessionForm data={data} defaultDate={day} classId={filter} busy={busy} error={error} onClose={closeModals} onSave={save} />}
+
+      {modal && modal !== 'session' && (
         <div className="modal-backdrop">
           <section className="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
             <div className="section-heading">
@@ -1374,7 +1320,6 @@ export default function Dashboard({ initial }: { initial: Data }) {
                   {
                     class: 'Tạo lớp học',
                     student: 'Thêm học viên',
-                    session: 'Thêm buổi học',
                     assignment: 'Giao bài tập',
                     notify: 'Gửi thông báo Web Push',
                   }[modal]
@@ -1429,9 +1374,6 @@ export default function Dashboard({ initial }: { initial: Data }) {
                   action: modal,
                   ...(values.class_id ? { class_id: Number(values.class_id) } : {}),
                   ...(modal === 'class' ? { fee: Number(values.fee) } : {}),
-                  ...(modal === 'session'
-                    ? { duration: Number(values.duration), repeat_weeks: Number(values.repeat_weeks || 1) }
-                    : {}),
                   ...(modal === 'assignment'
                     ? {
                         file_id,
@@ -1512,41 +1454,6 @@ export default function Dashboard({ initial }: { initial: Data }) {
                         Tạo nhanh
                       </button>
                     </div>
-                  </label>
-                </>
-              )}
-
-              {modal === 'session' && (
-                <>
-                  {renderClassSelect(filter || undefined)}
-                  <div className="form-grid">
-                    <label>
-                      Ngày học
-                      <input name="date" type="date" defaultValue={day} required />
-                    </label>
-                    <label>
-                      Giờ bắt đầu
-                      <input name="time" type="time" defaultValue="17:00" required />
-                    </label>
-                  </div>
-                  <div className="form-grid">
-                    <label>
-                      Thời lượng (phút)
-                      <input name="duration" type="number" min="15" max="480" defaultValue={90} required />
-                    </label>
-                    <label>
-                      Lặp lại hàng tuần
-                      <select name="repeat_weeks" defaultValue="1">
-                        <option value="1">Không lặp (1 buổi)</option>
-                        <option value="4">Lặp 4 tuần</option>
-                        <option value="8">Lặp 8 tuần</option>
-                        <option value="12">Lặp 12 tuần</option>
-                      </select>
-                    </label>
-                  </div>
-                  <label>
-                    Nội dung buổi học
-                    <input name="topic" maxLength={300} placeholder="Unit 5 · Our world" />
                   </label>
                 </>
               )}
@@ -1775,69 +1682,8 @@ export default function Dashboard({ initial }: { initial: Data }) {
         </div>
       )}
 
-      {/* Edit Session Modal */}
-      {editingSession && (
-        <div className="modal-backdrop">
-          <section className="modal" role="dialog" aria-modal="true" aria-labelledby="edit-session-title">
-            <div className="section-heading">
-              <h2 id="edit-session-title">Sửa buổi học</h2>
-              <button className="icon-button" onClick={closeModals} aria-label="Đóng">
-                <X size={20} />
-              </button>
-            </div>
-            {error && <p className="error" role="alert">{error}</p>}
-            <form
-              onSubmit={e => {
-                e.preventDefault();
-                const fd = new FormData(e.currentTarget);
-                save({
-                  action: 'update_session',
-                  id: editingSession.id,
-                  class_id: Number(fd.get('class_id')),
-                  date: String(fd.get('date') || ''),
-                  time: String(fd.get('time') || ''),
-                  duration: Number(fd.get('duration')),
-                  topic: String(fd.get('topic') || ''),
-                });
-              }}
-            >
-              {renderClassSelect(editingSession.class_id)}
-              <div className="form-grid">
-                <label>
-                  Ngày học
-                  <input name="date" type="date" defaultValue={editingSession.date} required />
-                </label>
-                <label>
-                  Giờ bắt đầu
-                  <input name="time" type="time" defaultValue={editingSession.time} required />
-                </label>
-              </div>
-              <label>
-                Thời lượng (phút)
-                <input name="duration" type="number" min="15" max="480" defaultValue={editingSession.duration} required />
-              </label>
-              <label>
-                Nội dung buổi học
-                <input name="topic" defaultValue={editingSession.topic} maxLength={300} />
-              </label>
-
-              <DeleteConfirmRow
-                label="Xóa buổi học này"
-                confirming={confirmDelete}
-                busy={busy}
-                onAsk={() => setConfirmDelete(true)}
-                onCancel={() => setConfirmDelete(false)}
-                onConfirm={() => save({ action: 'delete_session', id: editingSession.id }, 'Đã xóa buổi học')}
-              />
-
-              <div className="form-footer">
-                <button className="secondary" type="button" onClick={closeModals}>Hủy</button>
-                <button className="primary" disabled={busy}>{busy ? 'Đang lưu…' : 'Cập nhật buổi học'}</button>
-              </div>
-            </form>
-          </section>
-        </div>
-      )}
+      {editingSession && <SessionForm key={editingSession.id} data={data} session={editingSession} defaultDate={editingSession.date}
+        classId={editingSession.class_id} busy={busy} error={error} onClose={closeModals} onSave={save} />}
 
       {/* Edit Assignment Modal */}
       {editingAssignment && (
@@ -1943,7 +1789,7 @@ export default function Dashboard({ initial }: { initial: Data }) {
                   {accountStudent.push_count ? `Đang bật Push trên ${accountStudent.push_count} thiết bị` : 'Chưa bật Web Push'}
                 </p>
               </div>
-              <button className="icon-button" onClick={closeModals} aria-label="Đóng">
+              <button className="icon-button" onClick={closeModals} disabled={busy} aria-label="Đóng">
                 <X size={20} />
               </button>
             </div>
@@ -1955,6 +1801,7 @@ export default function Dashboard({ initial }: { initial: Data }) {
             <form
               onSubmit={async e => {
                 e.preventDefault();
+                if (busy || savedCredentials) return;
                 await save(
                   {
                     action: 'student_account',
@@ -1963,17 +1810,30 @@ export default function Dashboard({ initial }: { initial: Data }) {
                     password: accountPassword || undefined,
                   },
                   'Đã cập nhật tài khoản học viên',
+                  snapshot => {
+                    const updated = snapshot.students.find(s => s.id === accountStudent.id);
+                    if (updated?.username && updated.has_password) {
+                      setAccountStudent(updated);
+                      setAccountUsername(updated.username);
+                      setSavedCredentials({ username: updated.username, password: accountPassword });
+                      setAccountPassword('');
+                    }
+                  },
                 );
               }}
             >
               <label>
                 Tên đăng nhập (không dấu, tối thiểu 3 ký tự)
                 <input
+                  disabled={busy}
                   required
                   minLength={3}
                   maxLength={50}
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  autoComplete="off"
                   value={accountUsername}
-                  onChange={e => setAccountUsername(e.target.value)}
+                  onChange={e => { setAccountUsername(e.target.value); setSavedCredentials(null); }}
                 />
               </label>
 
@@ -1981,34 +1841,50 @@ export default function Dashboard({ initial }: { initial: Data }) {
                 {accountStudent.has_password ? 'Đặt mật khẩu mới (để trống nếu giữ nguyên)' : 'Đặt mật khẩu (tối thiểu 6 ký tự)'}
                 <div className="inline">
                   <input
+                    disabled={busy}
                     type="text"
                     maxLength={100}
+                    autoComplete="new-password"
                     required={!accountStudent.has_password}
                     minLength={accountPassword ? 6 : undefined}
                     placeholder={accountStudent.has_password ? 'Nhập mật khẩu mới nếu muốn đổi' : 'Ví dụ: xa4829'}
                     value={accountPassword}
-                    onChange={e => setAccountPassword(e.target.value)}
+                    onChange={e => { setAccountPassword(e.target.value); setSavedCredentials(null); }}
                     style={{ flex: 1 }}
                   />
-                  <button type="button" className="soft-button" onClick={() => setAccountPassword(randomPass())}>
+                  <button type="button" className="soft-button" disabled={busy} onClick={() => { setAccountPassword(randomPass()); setSavedCredentials(null); }}>
                     Tạo nhanh
                   </button>
                 </div>
               </label>
 
+              <div className="account-access-info">
+                {savedCredentials ? <>
+                  <strong>Tài khoản đã sẵn sàng để đăng nhập</strong>
+                  <p>Trang học sinh: <a href="/student" target="_blank" rel="noreferrer">/student</a></p>
+                  <p>Tên đăng nhập: <code>{savedCredentials.username}</code></p>
+                  {savedCredentials.password ? <p>Mật khẩu vừa lưu: <code>{savedCredentials.password}</code></p>
+                    : <p>Học sinh dùng mật khẩu hiện tại. Nếu quên, cô đặt mật khẩu mới và lưu trước khi gửi lại.</p>}
+                </> : <>
+                  <strong>{accountStudent.has_password ? 'Có thay đổi chưa lưu' : 'Học sinh chưa có mật khẩu đăng nhập'}</strong>
+                  <p>Cô đặt tên đăng nhập và mật khẩu, bấm <strong>Lưu tài khoản</strong>, rồi sao chép thông tin gửi cho học sinh. Học sinh đăng nhập tại <strong>/student</strong> và có thể tự đổi mật khẩu trong mục Tài khoản.</p>
+                </>}
+              </div>
+
               <button
                 type="button"
                 className="secondary"
-                onClick={() => copyCredentials(accountUsername || accountStudent.username || '', accountPassword)}
+                disabled={busy || !savedCredentials}
+                onClick={() => savedCredentials && copyCredentials(savedCredentials.username, savedCredentials.password)}
               >
                 <Copy size={15} /> Sao chép thông tin đăng nhập (/student)
               </button>
 
               <div className="form-footer">
-                <button className="secondary" type="button" onClick={closeModals}>
+                <button className="secondary" type="button" onClick={closeModals} disabled={busy}>
                   Đóng
                 </button>
-                <button className="primary" disabled={busy}>
+                <button className="primary" disabled={busy || Boolean(savedCredentials)}>
                   {busy ? 'Đang lưu…' : 'Lưu tài khoản'}
                 </button>
               </div>

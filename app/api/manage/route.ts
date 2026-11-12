@@ -5,30 +5,34 @@ import { cleanupUnreferencedFiles, parseAttachmentsJson } from '@/lib/files';
 import { hashPassword, normalizeUsername } from '@/lib/password';
 import { sendPushToStudents } from '@/lib/push';
 import { actionSchema } from '@/lib/schemas';
+import { createScheduledSessions, changeScheduledSessions, lockSchedule } from '@/lib/schedule-service';
+import { ScheduleError } from '@/lib/schedule';
+import { MANAGEMENT_API_VERSION, managementValidationError } from '@/lib/manage-api';
 
 export const runtime = 'nodejs';
 
-function addDaysIso(isoDate: string, days: number): string {
-  const [y, m, d] = isoDate.split('-').map(Number);
-  return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
+function respond(data: unknown, init: ResponseInit = {}) {
+  const headers = new Headers(init.headers);
+  headers.set('X-XuanAn-API-Version', MANAGEMENT_API_VERSION);
+  return Response.json(data, { ...init, headers });
 }
 
 export async function GET() {
   if (!(await isAdmin())) {
-    return Response.json({ error: 'Vui lòng đăng nhập.' }, { status: 401 });
+    return respond({ error: 'Vui lòng đăng nhập.' }, { status: 401 });
   }
-  return Response.json(await snapshot());
+  return respond(await snapshot());
 }
 
 export async function POST(req: Request) {
   if (!sameOrigin(req) || !(await isAdmin())) {
-    return Response.json({ error: 'Vui lòng đăng nhập lại.' }, { status: 401 });
+    return respond({ error: 'Vui lòng đăng nhập lại.' }, { status: 401 });
   }
 
   try {
     const parsed = actionSchema.safeParse(await req.json());
     if (!parsed.success) {
-      return Response.json({ error: 'Dữ liệu chưa hợp lệ. Vui lòng kiểm tra lại.' }, { status: 400 });
+      return respond(managementValidationError(parsed.error), { status: 400 });
     }
     const a = parsed.data;
 
@@ -57,7 +61,7 @@ export async function POST(req: Request) {
       case 'delete_class': {
         const studentCount = await get('SELECT COUNT(*)::int AS cnt FROM students WHERE class_id=?', a.id);
         if (Number(studentCount?.cnt || 0) > 0) {
-          return Response.json(
+          return respond(
             { error: 'Lớp vẫn đang có học viên. Vui lòng chuyển lớp hoặc xóa học viên trước.' },
             { status: 400 },
           );
@@ -76,6 +80,7 @@ export async function POST(req: Request) {
           }
         }
         await transaction(async client => {
+          await lockSchedule(client);
           await client.run('DELETE FROM attendance WHERE session_id IN (SELECT id FROM sessions WHERE class_id=?)', a.id);
           await client.run('DELETE FROM sessions WHERE class_id=?', a.id);
           if (assignmentIds.length) {
@@ -93,14 +98,14 @@ export async function POST(req: Request) {
         if (a.username && a.username.trim()) {
           const clean = normalizeUsername(a.username);
           if (clean.length < 3) {
-            return Response.json(
+            return respond(
               { error: 'Tên đăng nhập chỉ gồm chữ không dấu, số, dấu chấm hoặc gạch dưới (tối thiểu 3 ký tự).' },
               { status: 400 },
             );
           }
           const exists = await get('SELECT id FROM students WHERE LOWER(username)=?', clean);
           if (exists) {
-            return Response.json({ error: 'Tên đăng nhập này đã được sử dụng.' }, { status: 400 });
+            return respond({ error: 'Tên đăng nhập này đã được sử dụng.' }, { status: 400 });
           }
           username = clean;
         } else {
@@ -123,7 +128,7 @@ export async function POST(req: Request) {
       case 'update_student': {
         const cls = await get('SELECT id FROM classes WHERE id=?', a.class_id);
         if (!cls) {
-          return Response.json({ error: 'Không tìm thấy lớp học.' }, { status: 400 });
+          return respond({ error: 'Không tìm thấy lớp học.' }, { status: 400 });
         }
         await run(
           'UPDATE students SET name=?, parent=?, phone=?, class_id=? WHERE id=?',
@@ -139,7 +144,7 @@ export async function POST(req: Request) {
       case 'delete_student': {
         const stu = await get('SELECT token FROM students WHERE id=?', a.id);
         if (!stu) {
-          return Response.json({ error: 'Không tìm thấy học viên.' }, { status: 404 });
+          return respond({ error: 'Không tìm thấy học viên.' }, { status: 404 });
         }
         const subs = await all('SELECT file_id, attachments FROM submissions WHERE student_id=?', a.id);
         const ownedFiles = await all('SELECT id FROM files WHERE owner_token=?', String(stu.token));
@@ -163,18 +168,21 @@ export async function POST(req: Request) {
       case 'student_account': {
         const clean = normalizeUsername(a.username);
         if (clean.length < 3) {
-          return Response.json(
+          return respond(
             { error: 'Tên đăng nhập chỉ gồm chữ không dấu, số, dấu chấm hoặc gạch dưới (tối thiểu 3 ký tự).' },
             { status: 400 },
           );
         }
         const existing = await get('SELECT id FROM students WHERE LOWER(username)=? AND id<>?', clean, a.student_id);
         if (existing) {
-          return Response.json({ error: 'Tên đăng nhập này đã có học viên khác sử dụng.' }, { status: 400 });
+          return respond({ error: 'Tên đăng nhập này đã có học viên khác sử dụng.' }, { status: 400 });
         }
-        const target = await get('SELECT id, password_version FROM students WHERE id=?', a.student_id);
+        const target = await get('SELECT id, password_version, password_hash FROM students WHERE id=?', a.student_id);
         if (!target) {
-          return Response.json({ error: 'Không tìm thấy học viên.' }, { status: 404 });
+          return respond({ error: 'Không tìm thấy học viên.' }, { status: 404 });
+        }
+        if (!target.password_hash && !a.password) {
+          return respond({ error: 'Học viên chưa có mật khẩu. Cô đặt mật khẩu ít nhất 6 ký tự để kích hoạt tài khoản.' }, { status: 400 });
         }
         if (a.password && a.password.length >= 6) {
           const passwordHash = await hashPassword(a.password);
@@ -192,56 +200,33 @@ export async function POST(req: Request) {
         break;
       }
 
-      case 'session': {
-        const repeat = a.repeat_weeks ?? 1;
-        await transaction(async client => {
-          for (let w = 0; w < repeat; w++) {
-            await client.run(
-              'INSERT INTO sessions(class_id,date,time,duration,topic) VALUES(?,?,?,?,?)',
-              a.class_id,
-              addDaysIso(a.date, w * 7),
-              a.time,
-              a.duration,
-              a.topic,
-            );
-          }
-        });
+      case 'session':
+        await createScheduledSessions(a);
         break;
-      }
 
       case 'update_session':
-        await run(
-          'UPDATE sessions SET class_id=?, date=?, time=?, duration=?, topic=? WHERE id=?',
-          a.class_id,
-          a.date,
-          a.time,
-          a.duration,
-          a.topic,
-          a.id,
-        );
-        break;
-
       case 'delete_session':
-        await transaction(async client => {
-          await client.run('DELETE FROM attendance WHERE session_id=?', a.id);
-          await client.run('DELETE FROM sessions WHERE id=?', a.id);
-        });
+      case 'cancel_session':
+      case 'restore_session':
+        await changeScheduledSessions(a);
         break;
 
       case 'attendance': {
-        const session = await get('SELECT class_id FROM sessions WHERE id=?', a.session_id);
-        if (!session) throw Error('Không tìm thấy buổi học.');
-        const expected = await all('SELECT id FROM students WHERE class_id=?', session.class_id!);
-        if (
-          a.records.length !== expected.length ||
-          new Set(a.records.map(r => r.student_id)).size !== expected.length ||
-          a.records.some(r => !expected.some(s => s.id === r.student_id))
-        ) {
-          throw Error('Danh sách học viên không khớp lớp.');
-        }
-        await transaction(async ({ run }) => {
+        await transaction(async client => {
+          await lockSchedule(client);
+          const session = (await client.run('SELECT class_id, status FROM sessions WHERE id=?', a.session_id)).rows[0];
+          if (!session) throw new ScheduleError('Không tìm thấy buổi học.', 404);
+          if (session.status === 'cancelled') throw new ScheduleError('Buổi học đã hủy không thể điểm danh. Hãy khôi phục lịch trước.');
+          const expected = (await client.run('SELECT id FROM students WHERE class_id=?', session.class_id)).rows;
+          if (
+            a.records.length !== expected.length ||
+            new Set(a.records.map(r => r.student_id)).size !== expected.length ||
+            a.records.some(r => !expected.some(s => s.id === r.student_id))
+          ) {
+            throw Error('Danh sách học viên không khớp lớp.');
+          }
           for (const r of a.records) {
-            await run(
+            await client.run(
               'INSERT INTO attendance(session_id,student_id,status,focus,homework,note) VALUES(?,?,?,?,?,?) ON CONFLICT(session_id,student_id) DO UPDATE SET status=excluded.status,focus=excluded.focus,homework=excluded.homework,note=excluded.note',
               a.session_id,
               r.student_id,
@@ -289,7 +274,7 @@ export async function POST(req: Request) {
       case 'update_assignment': {
         const existing = await get('SELECT file_id FROM assignments WHERE id=?', a.id);
         if (!existing) {
-          return Response.json({ error: 'Không tìm thấy bài tập.' }, { status: 404 });
+          return respond({ error: 'Không tìm thấy bài tập.' }, { status: 404 });
         }
         if (a.file_id && a.file_id !== existing.file_id) {
           const fileRow = await get('SELECT id FROM files WHERE id=? AND owner_token IS NULL', a.file_id);
@@ -314,7 +299,7 @@ export async function POST(req: Request) {
       case 'delete_assignment': {
         const existing = await get('SELECT file_id FROM assignments WHERE id=?', a.id);
         if (!existing) {
-          return Response.json({ error: 'Không tìm thấy bài tập.' }, { status: 404 });
+          return respond({ error: 'Không tìm thấy bài tập.' }, { status: 404 });
         }
         const subs = await all('SELECT file_id, attachments FROM submissions WHERE assignment_id=?', a.id);
         const candidateFiles: (string | null)[] = [existing.file_id ? String(existing.file_id) : null];
@@ -392,7 +377,7 @@ export async function POST(req: Request) {
           url = `/student?tab=homework&assignment=${a.assignment_id}`;
           const assignment = await get('SELECT class_id FROM assignments WHERE id=?', a.assignment_id);
           if (!assignment) {
-            return Response.json({ error: 'Không tìm thấy bài tập.' }, { status: 404 });
+            return respond({ error: 'Không tìm thấy bài tập.' }, { status: 404 });
           }
           const rows = await all(
             `SELECT st.id
@@ -404,7 +389,7 @@ export async function POST(req: Request) {
           );
           targetIds = rows.map(r => Number(r.id));
           if (!targetIds.length) {
-            return Response.json({ error: 'Tất cả học viên trong lớp đã nộp bài tập này rồi.' }, { status: 400 });
+            return respond({ error: 'Tất cả học viên trong lớp đã nộp bài tập này rồi.' }, { status: 400 });
           }
         } else if (a.student_id) {
           targetIds = [a.student_id];
@@ -417,7 +402,7 @@ export async function POST(req: Request) {
         }
 
         if (!targetIds.length) {
-          return Response.json({ error: 'Chưa có học viên nào để gửi thông báo.' }, { status: 400 });
+          return respond({ error: 'Chưa có học viên nào để gửi thông báo.' }, { status: 400 });
         }
 
         const summary = await sendPushToStudents(targetIds, {
@@ -427,12 +412,13 @@ export async function POST(req: Request) {
           url,
           tag: `notice-${Date.now()}`,
         });
-        return Response.json({ ...(await snapshot()), notify_summary: summary });
+        return respond({ ...(await snapshot()), notify_summary: summary });
       }
     }
 
-    return Response.json(await snapshot());
-  } catch {
-    return Response.json({ error: 'Không lưu được dữ liệu. Kiểm tra thông tin và thử lại.' }, { status: 400 });
+    return respond(await snapshot());
+  } catch (error) {
+    if (error instanceof ScheduleError) return respond({ error: error.message }, { status: error.status });
+    return respond({ error: 'Không lưu được dữ liệu. Kiểm tra thông tin và thử lại.' }, { status: 400 });
   }
 }

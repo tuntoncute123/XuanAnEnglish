@@ -1,6 +1,7 @@
 import { all, get, parseJsonSafe, run } from './db';
 import { cleanupUnreferencedFiles, parseAttachmentsJson } from './files';
 import { getVapidConfig } from './push';
+import { addDays } from './schedule';
 import type {
   BankConfig,
   ParentMonthlySummary,
@@ -51,27 +52,34 @@ export async function buildStudentPortalData(student: StudentCore): Promise<Stud
       student.id,
     ),
     all(
-      `SELECT s.id, s.date, s.time, s.duration, s.topic, a.status, a.focus, a.homework, a.note
+      `SELECT s.id, s.date, s.time, s.duration, s.topic, s.status AS session_status, s.cancellation_reason,
+              a.status, a.focus, a.homework, a.note
        FROM sessions s
        LEFT JOIN attendance a ON a.session_id = s.id AND a.student_id = ?
-       WHERE s.class_id = ? AND s.date >= ?
-       ORDER BY s.date DESC, s.time DESC
-       LIMIT 20`,
+       WHERE s.class_id = ? AND s.date >= ? AND s.date <= ?
+       ORDER BY CASE WHEN s.date >= ? THEN 0 ELSE 1 END,
+                CASE WHEN s.date >= ? THEN s.date END ASC,
+                CASE WHEN s.date >= ? THEN s.time END ASC,
+                s.date DESC, s.time DESC`,
       student.id,
       student.class_id,
       pastLimit,
+      addDays(today, 90),
+      today,
+      today,
+      today,
     ),
     all(
       'SELECT id, device_label, updated_at FROM push_subscriptions WHERE student_id=? ORDER BY updated_at DESC',
       student.id,
     ),
     getVapidConfig(),
-    all('SELECT id FROM sessions WHERE class_id=? AND date LIKE ?', student.class_id, `${currentMonth}-%`),
+    all("SELECT id FROM sessions WHERE class_id=? AND date LIKE ? AND status <> 'cancelled'", student.class_id, `${currentMonth}-%`),
     all(
       `SELECT a.status, a.focus, a.homework, a.note
        FROM attendance a
        JOIN sessions s ON s.id = a.session_id
-       WHERE a.student_id = ? AND s.class_id = ? AND s.date LIKE ?`,
+       WHERE a.student_id = ? AND s.class_id = ? AND s.date LIKE ? AND s.status <> 'cancelled'`,
       student.id,
       student.class_id,
       `${currentMonth}-%`,
@@ -199,6 +207,8 @@ export async function buildStudentPortalData(student: StudentCore): Promise<Stud
       time: String(s.time),
       duration: Number(s.duration),
       topic: String(s.topic || ''),
+      session_status: s.session_status === 'cancelled' ? 'cancelled' : 'scheduled',
+      cancellation_reason: String(s.cancellation_reason || ''),
       status: s.status ? String(s.status) : null,
       focus: s.focus !== null && s.focus !== undefined ? Number(s.focus) : null,
       homework: s.homework !== null && s.homework !== undefined ? Number(s.homework) : null,

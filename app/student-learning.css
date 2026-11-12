@@ -1,0 +1,43 @@
+.student-login-help { margin-top: 18px; padding: 14px; background: #f4f7f0; border-radius: 10px; font-size: 13px; line-height: 1.7; }
+.student-login-help summary { cursor: pointer; font-weight: 600; color: #346d50; }
+.student-login-help ol { padding-left: 20px; margin: 12px 0; }
+.student-login-help p { margin: 8px 0 0; }
+.learning-overview { display: grid; gap: 12px; }
+.learning-summary { background: #f1f6ee; border: 1px solid #dce7d8; border-radius: 14px; padding: 18px; }
+.learning-summary .inline { flex-wrap: wrap; gap: 8px; font-size: 13px; }
+.learning-summary progress { display: block; width: 100%; height: 8px; margin: 14px 0; border: 0; border-radius: 10px; accent-color: #397759; overflow: hidden; }
+.learning-summary progress::-webkit-progress-bar { background: #dce7d8; }
+.learning-summary progress::-webkit-progress-value { background: #397759; border-radius: 10px; }
+.learning-summary p { color: #50664c; font-size: 12px; margin: 0; line-height: 1.6; }
+.learning-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.learning-metric { padding: 14px 10px; border-radius: 12px; display: flex; flex-direction: column; gap: 5px; text-align: left; background: #fff; border: 1px solid var(--border); }
+.learning-metric strong { font-size: 23px; color: #346d50; }
+.learning-metric span { font-size: 12px; }
+.learning-metric.overdue strong, .learning-metric.revision strong { color: #a94438; }
+.learning-next-session { display: flex; align-items: center; gap: 12px; text-align: left; padding: 16px; background: #fff; border: 1px solid var(--border); border-radius: 12px; }
+.learning-next-session > span { display: grid; gap: 5px; flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.learning-next-session strong { font-size: 13px; }
+.learning-next-session span span, .learning-next-session small { font-size: 12px; line-height: 1.5; color: var(--muted); }
+.homework-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) 160px; gap: 12px; align-items: end; }
+.homework-toolbar label { margin: 0; font-size: 12px; }
+.homework-toolbar input, .homework-toolbar select { width: 100%; min-width: 0; }
+.student-app-shell .student-filter-tabs { display: flex; flex-wrap: wrap; gap: 8px; overflow: visible; white-space: normal; }
+.homework-result-count { font-size: 12px; margin: 0; color: var(--muted); }
+.student-assignment { scroll-margin-top: 90px; }
+.homework-draft-status { padding: 10px 12px; border-radius: 9px; background: #f4f7f0; font-size: 12px; line-height: 1.6; }
+.homework-draft-status p { margin: 0; }
+.homework-draft-status small { display: block; color: var(--muted); margin-top: 4px; }
+.homework-draft-status.unavailable { background: #fff2df; color: #885b26; }
+.homework-draft-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; }
+.homework-draft-actions button { font-size: 12px; }
+.student-quiz-progress { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; font-size: 12px; margin-bottom: 10px; }
+.student-quiz-progress progress { max-width: 160px; height: 7px; accent-color: #397759; }
+.student-assignment fieldset { border: 0; padding: 0; margin: 0; min-width: 0; display: grid; gap: 14px; }
+.account-access-info { border: 1px solid #dce7d8; background: #f4f7f0; border-radius: 10px; padding: 14px; font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
+.account-access-info p { margin: 6px 0; }
+.account-access-info code { font-size: 14px; user-select: all; }
+@media (max-width: 600px) {
+  .learning-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .homework-toolbar { grid-template-columns: 1fr; gap: 10px; }
+  .homework-toolbar input, .homework-toolbar select { font-size: 16px; }
+}

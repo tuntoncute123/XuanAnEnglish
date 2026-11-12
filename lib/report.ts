@@ -1,6 +1,6 @@
 import type {Data,Student} from './types';
 export function monthlyReport(data:Data,student:Student,month:string){
- const sessions=data.sessions.filter(s=>s.class_id===student.class_id&&s.date.startsWith(month));
+ const sessions=data.sessions.filter(s=>s.class_id===student.class_id&&s.date.startsWith(month)&&s.status!=='cancelled');
  const records=data.attendance.filter(a=>a.student_id===student.id&&sessions.some(s=>s.id===a.session_id));
  const attended=records.filter(a=>a.status==='present'||a.status==='late');
  const fee=data.classes.find(c=>c.id===student.class_id)?.fee||0;

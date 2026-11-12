@@ -9,6 +9,9 @@ import tempfile
 import time
 import urllib.error
 import urllib.request
+from schedule_integration import check_schedules
+from notification_integration import check_notifications
+from student_account_integration import check_student_accounts
 
 database_url = os.environ.get('TEST_DATABASE_URL')
 if not database_url or not database_url.split('?', 1)[0].rstrip('/').endswith('_test'):
@@ -45,6 +48,10 @@ with tempfile.TemporaryDirectory(prefix='an-english-test-') as directory:
             else:
                 raise AssertionError('Server did not become ready')
             assert call('/api/manage')[0] == 401
+            try:
+                urllib.request.urlopen(base + '/api/manage')
+            except urllib.error.HTTPError as response:
+                assert response.code == 401 and response.headers.get('X-XuanAn-API-Version') == '2'
             assert call('/api/login', {'password':password}, origin=False)[0] == 403
             wrong = call('/api/login', {'password':'wrong'})
             assert wrong[0] == 401, wrong
@@ -118,6 +125,9 @@ with tempfile.TemporaryDirectory(prefix='an-english-test-') as directory:
             assert call('/api/cron/reminders', {})[0] == 200
             assert call('/api/student/logout', {'endpoint':'https://fcm.googleapis.com/fcm/send/demo-endpoint-1'}, opener=student_client)[0] == 200
             assert call('/api/student/me', opener=student_client)[0] == 401
+            check_notifications(call)
+            check_schedules(call)
+            check_student_accounts(call, base)
             assert call('/api/logout', {})[0] == 200
             assert call('/api/manage')[0] == 401
             print('PASS: all teacher CRUD, recurring schedule, quiz auto-grading, multi-attachments, VietQR, student accounts, PWA/Web Push, cron reminders, and logout')

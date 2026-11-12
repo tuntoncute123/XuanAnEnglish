@@ -10,7 +10,17 @@ export type Student = {
   has_password?: boolean;
   push_count?: number;
 };
-export type Session = { id: number; class_id: number; date: string; time: string; duration: number; topic: string };
+export type Session = {
+  id: number;
+  class_id: number;
+  date: string;
+  time: string;
+  duration: number;
+  topic: string;
+  series_id?: string | null;
+  status?: 'scheduled' | 'cancelled';
+  cancellation_reason?: string;
+};
 export type Attendance = { session_id: number; student_id: number; status: string; focus: number; homework: number; note: string };
 export type QuizQuestion = {
   id: string;
@@ -97,6 +107,8 @@ export type StudentSessionItem = {
   time: string;
   duration: number;
   topic: string;
+  session_status?: 'scheduled' | 'cancelled';
+  cancellation_reason?: string;
   status: string | null;
   focus: number | null;
   homework: number | null;

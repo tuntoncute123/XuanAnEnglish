@@ -125,7 +125,7 @@ test('CRUD, recurring session, quiz, grading, bank, and multi-file submission sc
       time: '18:00',
       duration: 90,
       topic: 'Unit 1',
-      repeat_weeks: 30,
+      repeat_weeks: 53,
     }).success,
     false,
   );

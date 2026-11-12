@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  AlertCircle,
   Bell,
   BellOff,
   BookOpen,
@@ -16,9 +15,8 @@ import {
   KeyRound,
   LogOut,
   MessageSquareHeart,
-  Paperclip,
   QrCode,
-  Send,
+  RefreshCw,
   Smartphone,
   Sparkles,
   Trash2,
@@ -26,14 +24,14 @@ import {
   Wallet,
   X,
 } from 'lucide-react';
-import type { StudentAssignment, StudentPortalData, Submission, SubmissionAttachment } from '@/lib/types';
-import AudioRecorder from './audio-recorder';
+import type { StudentPortalData } from '@/lib/types';
+import { homeworkStats, selectHomework, type HomeworkFilter, type HomeworkSort } from '@/lib/student-learning';
+import AssignmentCard from './student-assignment-card';
+import StudentLearningOverview from './student-learning-overview';
 import { PwaGuideModal, PwaInstallBanner, usePwaAndPush } from './student-pwa';
 
 type StudentTab = 'homework' | 'notifications' | 'schedule' | 'account';
-type HomeworkFilter = 'pending' | 'submitted' | 'all';
 
-const todayBangkok = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
 const money = (n: number) => new Intl.NumberFormat('vi-VN').format(n) + ' đ';
 
 function formatDateVi(isoDate: string): string {
@@ -70,6 +68,9 @@ export default function StudentPortal({ token }: { token?: string }) {
   const [data, setData] = useState<StudentPortalData | null>(null);
   const [tab, setTab] = useState<StudentTab>('homework');
   const [hwFilter, setHwFilter] = useState<HomeworkFilter>('all');
+  const [homeworkQuery, setHomeworkQuery] = useState('');
+  const [homeworkSort, setHomeworkSort] = useState<HomeworkSort>('priority');
+  const [now, setNow] = useState(() => new Date());
   const [highlightAssignmentId, setHighlightAssignmentId] = useState<number | null>(null);
 
   const [error, setError] = useState('');
@@ -128,6 +129,13 @@ export default function StudentPortal({ token }: { token?: string }) {
     });
   }, [load]);
 
+  useEffect(() => {
+    const tick = () => setNow(new Date());
+    const timer = window.setInterval(tick, 60_000);
+    window.addEventListener('focus', tick);
+    return () => { window.clearInterval(timer); window.removeEventListener('focus', tick); };
+  }, []);
+
   const pwa = usePwaAndPush({
     vapidPublicKey: data?.vapidPublicKey,
     studentToken: token,
@@ -165,15 +173,24 @@ export default function StudentPortal({ token }: { token?: string }) {
     setBusy(true);
     try {
       const endpoint = await pwa.cleanupBeforeLogout();
-      await fetch('/api/student/logout', {
+      const res = await fetch('/api/student/logout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(endpoint ? { endpoint } : {}),
       });
+      if (!res.ok) throw new Error('Chưa đăng xuất được. Con thử lại nhé.');
       setData(null);
       setAuthState('login');
       setTab('homework');
+      setHwFilter('all');
+      setHomeworkQuery('');
+      setHighlightAssignmentId(null);
+      setLoginUsername('');
+      setShowLoginPassword(false);
+      setError('');
       notify('Đã đăng xuất tài khoản.');
+    } catch (err) {
+      setError((err as Error).message);
     } finally {
       setBusy(false);
     }
@@ -181,15 +198,18 @@ export default function StudentPortal({ token }: { token?: string }) {
 
   async function markNotificationsRead(ids?: number[]) {
     if (!data) return;
+    const studentId = data.student.id;
     const url = isTokenMode ? `/api/student/${token}` : '/api/student/me';
-    const res = await fetch(url, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'read_notifications', ids }),
-    });
-    if (res.ok) {
+    setError('');
+    try {
+      const res = await fetch(url, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'read_notifications', ids }),
+      });
+      if (!res.ok) throw new Error('Notification update failed');
       setData(prev => {
-        if (!prev) return prev;
+        if (!prev || prev.student.id !== studentId) return prev;
         const nextList = prev.notifications.map(n => (!ids || ids.includes(n.id) ? { ...n, is_read: true } : n));
         return {
           ...prev,
@@ -197,6 +217,8 @@ export default function StudentPortal({ token }: { token?: string }) {
           unread_count: nextList.filter(n => !n.is_read).length,
         };
       });
+    } catch {
+      setError('Chưa đánh dấu được thông báo đã đọc. Con kiểm tra kết nối và thử lại nhé.');
     }
   }
 
@@ -223,35 +245,16 @@ export default function StudentPortal({ token }: { token?: string }) {
     }
   }
 
-  const assignmentStats = useMemo(() => {
-    if (!data) return { total: 0, submitted: 0, pending: 0 };
-    const total = data.assignments.length;
-    const doneIds = new Set(
-      data.submissions.filter(s => s.status !== 'needs_revision').map(s => s.assignment_id),
-    );
-    const submitted = data.assignments.filter(a => doneIds.has(a.id)).length;
-    return { total, submitted, pending: total - submitted };
-  }, [data]);
+  const todayStr = now.toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
+  const assignmentStats = useMemo(() => homeworkStats(data?.assignments || [], data?.submissions || [], todayStr), [data, todayStr]);
+  const filteredAssignments = useMemo(() => selectHomework(
+    data?.assignments || [], data?.submissions || [], todayStr, hwFilter, homeworkQuery, homeworkSort,
+  ), [data, todayStr, hwFilter, homeworkQuery, homeworkSort]);
 
-  const filteredAssignments = useMemo(() => {
-    if (!data) return [];
-    const subMap = new Map(data.submissions.map(s => [s.assignment_id, s]));
-    if (hwFilter === 'pending') {
-      return data.assignments.filter(a => {
-        const s = subMap.get(a.id);
-        return !s || s.status === 'needs_revision';
-      });
-    }
-    if (hwFilter === 'submitted') {
-      return data.assignments.filter(a => {
-        const s = subMap.get(a.id);
-        return Boolean(s && s.status !== 'needs_revision');
-      });
-    }
-    return data.assignments;
-  }, [data, hwFilter]);
-
-  const todayStr = todayBangkok();
+  function chooseHomeworkFilter(filter: HomeworkFilter) {
+    setHwFilter(filter);
+    setHighlightAssignmentId(null);
+  }
 
   if (authState === 'loading') {
     return (
@@ -356,6 +359,15 @@ export default function StudentPortal({ token }: { token?: string }) {
           <p className="student-login-hint">
             Chưa có tên đăng nhập hoặc quên mật khẩu? Nhờ cô An cấp lại tài khoản trong lớp nhé.
           </p>
+          <details className="student-login-help">
+            <summary>Lấy tài khoản ở đâu? Đăng nhập thế nào?</summary>
+            <ol>
+              <li>Nhờ cô An gửi <strong>tên đăng nhập và mật khẩu riêng</strong> của con. Tài khoản do cô cấp, chưa có mục tự đăng ký.</li>
+              <li>Nhập tên đăng nhập vào ô đầu, nhập đúng mật khẩu vào ô bên dưới rồi bấm <strong>Vào góc học tập</strong>.</li>
+              <li>Sau khi vào được, mở <strong>Tài khoản → Đổi mật khẩu tài khoản</strong> để đặt mật khẩu của con (ít nhất 6 ký tự).</li>
+            </ol>
+            <p>Quên mật khẩu? Nhờ cô An đặt lại tại <strong>Lớp & học viên → Tài khoản</strong>. Không có mật khẩu dùng chung cho cả lớp.</p>
+          </details>
         </section>
 
         <div className="student-login-pwa">
@@ -395,6 +407,10 @@ export default function StudentPortal({ token }: { token?: string }) {
           </div>
 
           <div className="student-topbar-actions">
+            <button type="button" className="student-bell-btn" aria-label="Cập nhật dữ liệu" title="Cập nhật bài tập và nhận xét" disabled={busy} onClick={async () => {
+              setBusy(true); setError('');
+              try { await load(); setNow(new Date()); } catch (err) { setError((err as Error).message); } finally { setBusy(false); }
+            }}><RefreshCw size={18} /></button>
             {!pwa.env.isStandalone && (pwa.env.platform === 'android' || pwa.env.platform === 'ios' || pwa.hasNativeInstallPrompt) && (
               <button
                 type="button"
@@ -510,39 +526,53 @@ export default function StudentPortal({ token }: { token?: string }) {
               </div>
             </div>
 
+            <StudentLearningOverview stats={assignmentStats} sessions={data.sessions} now={now}
+              onFilter={filter => { chooseHomeworkFilter(filter); setHomeworkQuery(''); }} onSchedule={() => setTab('schedule')} />
+
             {isTokenMode && (
               <p className="helper student-inline-helper">
                 Đây là liên kết riêng của con. Con cũng có thể đăng nhập bằng tài khoản tại <a className="text-button" href="/student">/student</a> trên mọi thiết bị.
               </p>
             )}
 
-            <div className="tabs student-filter-tabs">
-              <button type="button" className={hwFilter === 'all' ? 'selected' : ''} onClick={() => setHwFilter('all')}>
-                Tất cả ({assignmentStats.total})
-              </button>
-              <button type="button" className={hwFilter === 'pending' ? 'selected' : ''} onClick={() => setHwFilter('pending')}>
-                Cần làm ({assignmentStats.pending})
-              </button>
-              <button type="button" className={hwFilter === 'submitted' ? 'selected' : ''} onClick={() => setHwFilter('submitted')}>
-                Đã nộp ({assignmentStats.submitted})
-              </button>
+            <div className="homework-toolbar">
+              <label>Tìm bài tập
+                <input type="search" placeholder="Tên bài, nội dung hoặc nhận xét…" value={homeworkQuery} maxLength={200}
+                  onChange={e => { setHomeworkQuery(e.target.value); setHighlightAssignmentId(null); }} />
+              </label>
+              <label>Sắp xếp
+                <select value={homeworkSort} onChange={e => setHomeworkSort(e.target.value as HomeworkSort)}>
+                  <option value="priority">Cần làm trước</option><option value="newest">Bài mới nhất</option>
+                </select>
+              </label>
             </div>
+            <div className="tabs student-filter-tabs" role="group" aria-label="Lọc bài tập">
+              {([
+                ['all', 'Tất cả', assignmentStats.total], ['pending', 'Cần làm', assignmentStats.pending],
+                ['overdue', 'Quá hạn', assignmentStats.overdue], ['revision', 'Cần sửa', assignmentStats.revision],
+                ['submitted', 'Đã nộp', assignmentStats.submitted], ['reviewed', 'Đã nhận xét', assignmentStats.reviewed],
+              ] as const).map(([filter, label, count]) => <button type="button" key={filter} aria-pressed={hwFilter === filter}
+                className={hwFilter === filter ? 'selected' : ''} onClick={() => chooseHomeworkFilter(filter)}>{label} ({count})</button>)}
+            </div>
+            <p className="homework-result-count" role="status">Hiển thị {filteredAssignments.length}/{assignmentStats.total} bài tập</p>
 
             {filteredAssignments.length === 0 ? (
               <div className="panel empty">
                 <Sparkles size={28} />
                 <p>
-                  {hwFilter === 'pending'
+                  {homeworkQuery.trim() ? 'Không tìm thấy bài phù hợp. Con thử tìm bằng từ khác hoặc xóa bộ lọc nhé.' : hwFilter === 'pending'
                     ? 'Tuyệt vời! Con đã hoàn thành hết các bài tập hiện có.'
                     : 'Chưa có bài tập nào trong mục này. Con quay lại sau nhé!'}
                 </p>
+                {(homeworkQuery || hwFilter !== 'all') && <button className="secondary" type="button" onClick={() => { setHomeworkQuery(''); chooseHomeworkFilter('all'); }}>Xem tất cả bài tập</button>}
               </div>
             ) : (
               filteredAssignments.map(a => {
                 const sub = data.submissions.find(s => s.assignment_id === a.id);
                 return (
                   <AssignmentCard
-                    key={`${a.id}-${sub?.submitted_at || 'new'}-${sub?.status || 'none'}-${sub?.score || ''}`}
+                    key={`${data.student.id}-${a.id}-${sub?.submitted_at || 'new'}-${sub?.status || 'none'}-${sub?.score || ''}`}
+                    studentId={data.student.id}
                     assignment={a}
                     submission={sub}
                     todayStr={todayStr}
@@ -647,6 +677,8 @@ export default function StudentPortal({ token }: { token?: string }) {
                         const urlObj = new URL(n.url, window.location.origin);
                         const aid = Number(urlObj.searchParams.get('assignment'));
                         if (Number.isInteger(aid) && aid > 0) setHighlightAssignmentId(aid);
+                        setHwFilter('all');
+                        setHomeworkQuery('');
                         setTab('homework');
                       }
                     }}
@@ -684,18 +716,21 @@ export default function StudentPortal({ token }: { token?: string }) {
               </div>
             ) : (
               <div className="schedule-card-list">
+                <p className="muted">Lịch 90 ngày tới và 30 ngày gần đây. Buổi sắp tới được xếp trước; buổi đã hủy không tính học phí.</p>
                 {data.sessions.map((s) => {
-                  const isUpcoming = s.date >= todayStr && !s.status;
+                  const cancelled = s.session_status === 'cancelled';
+                  const isUpcoming = !cancelled && s.date >= todayStr && !s.status;
                   return (
-                    <article key={s.id} className="panel student-session-card">
+                    <article key={s.id} className={`panel student-session-card ${cancelled ? 'is-cancelled' : ''}`}>
                       <div className="inline between">
                         <strong>{formatDateVi(s.date)} · {s.time}</strong>
                         <span className={`badge ${isUpcoming ? 'badge-new' : 'badge-done'}`}>
-                          {s.status ? (statusLabelMap[s.status] || s.status) : `${s.duration} phút`}
+                          {cancelled ? 'Đã hủy' : s.status ? (statusLabelMap[s.status] || s.status) : `${s.duration} phút`}
                         </span>
                       </div>
                       <p className="session-topic">{s.topic || 'Buổi học tiếng Anh'}</p>
-                      {s.status && (s.status === 'present' || s.status === 'late') && (
+                      {cancelled && <p className="schedule-notice">Lý do nghỉ: {s.cancellation_reason || 'Đã hủy buổi học'}</p>}
+                      {!cancelled && s.status && (s.status === 'present' || s.status === 'late') && (
                         <div className="session-ratings">
                           <span>Tập trung: <strong>{s.focus ?? '—'}/5</strong></span>
                           <span>BTVN: <strong>{s.homework ?? '—'}/5</strong></span>
@@ -734,7 +769,7 @@ export default function StudentPortal({ token }: { token?: string }) {
                 <Smartphone size={18} />
                 <p>
                   Con có thể đăng nhập bằng tài khoản <strong>{data.student.username ? `@${data.student.username}` : 'học viên'}</strong> trên
-                  điện thoại, iPad hoặc máy tính — mọi bài tập và thông báo đều đồng bộ trên tất cả thiết bị.
+                  điện thoại, iPad hoặc máy tính. Bài đã nộp và thông báo đồng bộ trên các thiết bị; bản nháp chỉ lưu trên trình duyệt đang dùng.
                 </p>
               </div>
             </article>
@@ -910,296 +945,6 @@ export default function StudentPortal({ token }: { token?: string }) {
         </div>
       )}
     </div>
-  );
-}
-
-function AssignmentCard({
-  assignment: a,
-  submission: sub,
-  todayStr,
-  highlighted,
-  token,
-  busy,
-  onBusy,
-  onError,
-  onSubmitted,
-}: {
-  assignment: StudentAssignment;
-  submission?: Submission;
-  todayStr: string;
-  highlighted: boolean;
-  token?: string;
-  busy: boolean;
-  onBusy: (b: boolean) => void;
-  onError: (e: string) => void;
-  onSubmitted: () => Promise<void>;
-}) {
-  const isTokenMode = Boolean(token);
-  const downloadSuffix = isTokenMode ? `?token=${encodeURIComponent(token || '')}` : '';
-  const inlineSuffix = isTokenMode ? `?inline=1&token=${encodeURIComponent(token || '')}` : '?inline=1';
-
-  const [answer, setAnswer] = useState(sub?.answer || '');
-  const [keptAttachments, setKeptAttachments] = useState<SubmissionAttachment[]>(sub?.attachments || []);
-  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
-  const [recordedAudio, setRecordedAudio] = useState<File | null>(null);
-  const [quizAnswers, setQuizAnswers] = useState<Record<string, number>>(sub?.quiz_answers || {});
-
-  const overdue = !sub && a.deadline < todayStr;
-  const needsRevision = sub?.status === 'needs_revision';
-  const questions = a.questions || [];
-
-  async function uploadSingleFile(file: File): Promise<string> {
-    const uploadForm = new FormData();
-    uploadForm.set('file', file);
-    const uploadHeaders: Record<string, string> = isTokenMode
-      ? { 'x-student-token': token || '' }
-      : { 'x-student-session': '1' };
-    const uploadRes = await fetch('/api/files', {
-      method: 'POST',
-      headers: uploadHeaders,
-      body: uploadForm,
-    });
-    const uploaded = await uploadRes.json();
-    if (!uploadRes.ok) throw new Error(uploaded.error || 'Không tải được tệp.');
-    return String(uploaded.id);
-  }
-
-  return (
-    <article className={`panel student-assignment ${highlighted ? 'highlighted-assignment' : ''}`}>
-      <div className="inline between assignment-meta-row">
-        <div className="inline" style={{ gap: 6, flexWrap: 'wrap' }}>
-          <span
-            className={`badge ${
-              needsRevision
-                ? 'badge-overdue'
-                : sub?.feedback || sub?.status === 'reviewed'
-                  ? 'badge-graded'
-                  : sub
-                    ? 'badge-done'
-                    : overdue
-                      ? 'badge-overdue'
-                      : 'badge-new'
-            }`}
-          >
-            {needsRevision
-              ? 'Cô nhắn sửa lại'
-              : sub?.feedback || sub?.status === 'reviewed'
-                ? '✓ Đã chấm bài'
-                : sub
-                  ? '✓ Đã nộp bài'
-                  : overdue
-                    ? 'Quá hạn nộp'
-                    : 'Chưa làm'}
-          </span>
-          {sub?.score && <span className="badge badge-score">Điểm: {sub.score}</span>}
-        </div>
-        <small className="deadline-pill">
-          <Clock size={12} /> Hạn: {formatDateVi(a.deadline)}
-        </small>
-      </div>
-
-      <h2>{a.title}</h2>
-      <p className="pre-wrap assignment-instructions">{a.instructions}</p>
-
-      {a.file_id && (
-        <a
-          className="soft-button assignment-download-btn"
-          href={`/api/download/${a.file_id}${downloadSuffix}`}
-        >
-          <Download size={15} /> Tải tệp đề bài
-        </a>
-      )}
-
-      {sub?.feedback && (
-        <div className={`feedback ${needsRevision ? 'feedback-revision' : ''}`}>
-          <strong>
-            {needsRevision ? <AlertCircle size={15} /> : <MessageSquareHeart size={15} />}
-            {needsRevision ? 'Nhắc sửa bài từ cô An' : 'Lời nhắn từ cô An'}
-          </strong>
-          <p className="pre-wrap">{sub.feedback}</p>
-        </div>
-      )}
-
-      <form
-        onSubmit={async (e) => {
-          e.preventDefault();
-          onBusy(true);
-          onError('');
-          try {
-            const totalCount = keptAttachments.length + pendingFiles.length + (recordedAudio ? 1 : 0);
-            if (totalCount > 6) {
-              throw new Error('Mỗi bài nộp đính kèm tối đa 6 tệp/ảnh.');
-            }
-            const uploadedIds: string[] = [];
-            for (const f of pendingFiles) {
-              uploadedIds.push(await uploadSingleFile(f));
-            }
-            if (recordedAudio) {
-              uploadedIds.push(await uploadSingleFile(recordedAudio));
-            }
-            const file_ids = [...keptAttachments.map(att => att.id), ...uploadedIds];
-
-            const submitUrl = isTokenMode ? `/api/student/${token}` : '/api/student/me';
-            const submitRes = await fetch(submitUrl, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                assignment_id: a.id,
-                answer,
-                file_id: file_ids[0] || null,
-                file_ids,
-                quiz_answers: questions.length > 0 ? quizAnswers : undefined,
-              }),
-            });
-            const submitJson = await submitRes.json();
-            if (!submitRes.ok) throw new Error(submitJson.error || 'Không nộp được bài.');
-
-            setPendingFiles([]);
-            setRecordedAudio(null);
-            await onSubmitted();
-          } catch (err) {
-            onError((err as Error).message);
-          } finally {
-            onBusy(false);
-          }
-        }}
-      >
-        {questions.length > 0 && (
-          <div className="quiz-block">
-            <strong className="quiz-heading">Câu hỏi trắc nghiệm ({questions.length} câu)</strong>
-            {questions.map((q, qIdx) => {
-              const chosen = quizAnswers[q.id];
-              const hasKey = typeof q.correctIndex === 'number';
-              return (
-                <div key={q.id} className="quiz-question-card">
-                  <p className="quiz-prompt">
-                    <strong>Câu {qIdx + 1}:</strong> {q.prompt}
-                  </p>
-                  <div className="quiz-options">
-                    {q.options.map((opt, optIdx) => {
-                      const isChosen = chosen === optIdx;
-                      const isCorrect = hasKey && q.correctIndex === optIdx;
-                      const isWrongChosen = hasKey && isChosen && q.correctIndex !== optIdx;
-                      return (
-                        <button
-                          type="button"
-                          key={optIdx}
-                          className={`quiz-option ${isChosen ? 'selected' : ''} ${isCorrect ? 'correct' : ''} ${isWrongChosen ? 'wrong' : ''}`}
-                          onClick={() => setQuizAnswers(prev => ({ ...prev, [q.id]: optIdx }))}
-                        >
-                          <span className="quiz-letter">{String.fromCharCode(65 + optIdx)}</span>
-                          <span>{opt}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-
-        <label>
-          Bài làm của con
-          <textarea
-            name="answer"
-            value={answer}
-            onChange={(e) => setAnswer(e.target.value)}
-            rows={4}
-            maxLength={10000}
-            placeholder="Viết câu trả lời ở đây, hoặc ghi âm / chụp nhiều ảnh vở bên dưới…"
-          />
-        </label>
-
-        {keptAttachments.length > 0 && (
-          <div className="attachments-list">
-            <small className="attachments-label">Tệp đã đính kèm ({keptAttachments.length})</small>
-            {keptAttachments.map(att => {
-              const isAudio = att.type.startsWith('audio/');
-              const isImage = att.type.startsWith('image/');
-              return (
-                <div key={att.id} className="attachment-item">
-                  <div className="inline between" style={{ width: '100%' }}>
-                    <a
-                      className="text-button"
-                      href={`/api/download/${att.id}${downloadSuffix}`}
-                    >
-                      <Paperclip size={14} /> {att.name}
-                    </a>
-                    <button
-                      type="button"
-                      className="icon-button"
-                      aria-label={`Bỏ tệp ${att.name}`}
-                      onClick={() => setKeptAttachments(prev => prev.filter(item => item.id !== att.id))}
-                    >
-                      <X size={14} />
-                    </button>
-                  </div>
-                  {isAudio && (
-                    <audio controls preload="metadata" className="audio-preview" src={`/api/download/${att.id}${inlineSuffix}`} />
-                  )}
-                  {isImage && (
-                    <img
-                      src={`/api/download/${att.id}${inlineSuffix}`}
-                      alt={att.name}
-                      className="attachment-thumb"
-                      loading="lazy"
-                    />
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        )}
-
-        <div className="media-upload-stack">
-          <AudioRecorder recordedFile={recordedAudio} onChange={setRecordedAudio} />
-
-          <label className="file-picker-label">
-            <span>Chọn nhiều ảnh chụp vở hoặc tệp bài làm (tối đa 6 tệp, 10 MB/tệp)</span>
-            <input
-              type="file"
-              multiple
-              accept=".pdf,.docx,.jpg,.jpeg,.png,.webp,.mp3,.wav,.m4a,.webm,.ogg,.txt,image/*,audio/*"
-              onChange={(e) => {
-                const picked = Array.from(e.target.files || []);
-                if (picked.length) {
-                  setPendingFiles(prev => [...prev, ...picked].slice(0, 6));
-                }
-                e.currentTarget.value = '';
-              }}
-            />
-          </label>
-
-          {pendingFiles.length > 0 && (
-            <div className="pending-files-list">
-              {pendingFiles.map((f, idx) => (
-                <div key={`${f.name}-${idx}`} className="pending-file-chip">
-                  <span>{f.name}</span>
-                  <button
-                    type="button"
-                    aria-label={`Xóa ${f.name}`}
-                    onClick={() => setPendingFiles(prev => prev.filter((_, i) => i !== idx))}
-                  >
-                    <X size={13} />
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        <div className="submission-actions">
-          {sub?.submitted_at && (
-            <small className="submitted-time">Đã nộp lúc {formatDateTimeVi(sub.submitted_at)}</small>
-          )}
-          <button className="primary student-submit-btn" disabled={busy}>
-            <Send size={15} />
-            {busy ? 'Đang gửi…' : sub ? 'Cập nhật bài làm' : 'Nộp bài cho cô An'}
-          </button>
-        </div>
-      </form>
-    </article>
   );
 }
 

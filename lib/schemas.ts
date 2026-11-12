@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { notificationSchema } from './notification.ts';
 
 const id = z.number().int().positive();
 const text = z.string().trim().min(1).max(200);
@@ -8,6 +9,7 @@ const date = z
   .refine(v => !Number.isNaN(Date.parse(v)) && new Date(v).toISOString().slice(0, 10) === v, 'Ngày không hợp lệ');
 const time = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/);
 const classColor = z.enum(['green', 'purple', 'orange']).optional();
+const sessionScope = z.enum(['single', 'following']).default('single');
 
 const optionalPassword = z
   .string()
@@ -77,18 +79,27 @@ export const actionSchema = z.discriminatedUnion('action', [
     time,
     duration: z.number().int().min(15).max(480),
     topic: z.string().max(300),
-    repeat_weeks: z.number().int().min(1).max(16).optional(),
+    repeat_weeks: z.number().int().min(1).max(52).optional(),
+    recurrence: z.object({
+      weekdays: z.array(z.number().int().min(0).max(6)).min(1).max(7)
+        .refine(days => new Set(days).size === days.length),
+      until: date,
+      exclude_dates: z.array(date).max(366).default([]),
+    }).optional(),
   }),
   z.object({
     action: z.literal('update_session'),
     id,
+    scope: sessionScope,
     class_id: id,
     date,
     time,
     duration: z.number().int().min(15).max(480),
     topic: z.string().max(300),
   }),
-  z.object({ action: z.literal('delete_session'), id }),
+  z.object({ action: z.literal('delete_session'), id, scope: sessionScope }),
+  z.object({ action: z.literal('cancel_session'), id, scope: sessionScope, reason: z.string().trim().min(1).max(300) }),
+  z.object({ action: z.literal('restore_session'), id }),
   z.object({
     action: z.literal('attendance'),
     session_id: id,
@@ -146,14 +157,7 @@ export const actionSchema = z.discriminatedUnion('action', [
     accountNo: z.string().trim().max(40),
     accountName: z.string().trim().max(100),
   }),
-  z.object({
-    action: z.literal('notify'),
-    title: z.string().trim().min(1).max(120),
-    body: z.string().trim().min(1).max(500),
-    class_id: id.optional(),
-    student_id: id.optional(),
-    assignment_id: id.optional(),
-  }),
+  notificationSchema,
 ]);
 
 export const studentLoginSchema = z.object({
