@@ -11,6 +11,8 @@
     "test:integration": "python3 tests/integration.py"
   },
   "dependencies": {
+    "fast-xml-parser": "^5.12.0",
+    "fflate": "^0.8.3",
     "lucide-react": "^0.468.0",
     "next": "^16.0.0",
     "pg": "^8.23.1",

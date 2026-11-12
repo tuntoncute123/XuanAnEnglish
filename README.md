@@ -68,11 +68,23 @@ Sau khi đăng nhập, học sinh có thể:
 
 - Xem tiến độ nộp bài, bài đến hạn hôm nay, bài quá hạn/cần sửa và buổi học đang diễn ra hoặc sắp tới (bỏ qua lịch đã hủy).
 - Tìm bài theo tên, nội dung, nhận xét; tìm không dấu; lọc bài cần làm/quá hạn/cần sửa/đã nộp/đã nhận xét và sắp xếp theo việc cần làm trước hoặc bài mới nhất.
-- Tự lưu câu trả lời và đáp án trắc nghiệm thành bản nháp trên trình duyệt hiện tại. Nháp tách theo học sinh và bài tập, khôi phục khi chuyển mục/tải lại trang, xóa sau khi nộp thành công; bản nháp cũ không ghi đè bài đã nộp mới hơn trên thiết bị khác. Đổi câu hỏi sẽ bỏ các lựa chọn cũ nhưng giữ phần trả lời viết.
+- Tự lưu câu trả lời và đáp án trắc nghiệm thành bản nháp trên trình duyệt hiện tại. Nháp tách theo học sinh và bài tập, khôi phục khi chuyển mục/tải lại trang, xóa sau khi nộp thành công; bản nháp cũ không ghi đè bài đã nộp mới hơn trên thiết bị khác. Đổi câu hỏi sẽ bỏ các lựa chọn và câu trả lời theo câu cũ, nhưng giữ phần bài viết chung.
 - Theo dõi số câu trắc nghiệm đã trả lời; nộp/cập nhật bài viết, ảnh, tệp và ghi âm; xem điểm, lời nhận xét, lịch học, học phí và thông báo như trước.
 - Đổi mật khẩu trong **Tài khoản → Đổi mật khẩu tài khoản**, hoặc nhờ cô đặt lại nếu quên. Đổi/đặt lại mật khẩu làm hết hiệu lực các phiên đăng nhập cũ; liên kết riêng `/student/[token]` vẫn là cách truy cập riêng biệt hiện có.
 
 Nháp chỉ lưu câu trả lời và lựa chọn trắc nghiệm trên thiết bị này, chưa gửi cho cô và chưa đồng bộ giữa các thiết bị. Ảnh, tệp và ghi âm mới cần nộp trước khi chuyển mục/rời trang; mỗi bài tối đa 6 tệp, 10 MB/tệp. Nút **Xóa nháp** bỏ phần đang soạn và trở về bài đã nộp (nếu có). Nút cập nhật trên thanh đầu trang tải lại bài tập/nhận xét mới nhất. Trang đăng nhập có mục hướng dẫn lấy tài khoản và quên mật khẩu.
+
+## Nhập đề DOCX thành bài làm trực tiếp
+
+Trong **Bài tập về nhà → Giao bài tập** (hoặc **Sửa bài tập**), chọn **Đề DOCX cần tách** ở mục **Nhập câu hỏi từ đề Word**. Sau khi xem trước, bấm **Dùng … câu hỏi này**, kiểm tra/sửa câu hỏi và chọn đáp án đúng nếu muốn tự chấm, rồi lưu bài. Khi sửa bài đã có câu hỏi, nút nhập ghi rõ số câu sẽ thay thế; nhập một đề mới cấp mã câu mới để câu trả lời cũ không gắn nhầm đề. Ô tệp đính kèm hiện có vẫn chỉ đính kèm tài liệu; mục nhập DOCX không tự phát tệp gốc cho học sinh.
+
+Bộ tách chạy trên máy chủ bằng quy tắc chuỗi, không gọi AI hay dịch vụ chuyển đổi ngoài. Hỗ trợ câu đánh số `Câu 1.`, `Question 1.` hoặc `1.`, lựa chọn chữ hoa `A.`–`F.` (cùng dòng hoặc xuống dòng), các phần `PART`/`SECTION`/`PHẦN`, hướng dẫn và đoạn đọc dùng chung. Dòng chữ thường `a.`/`b.` trong bài sắp xếp câu được giữ trong đề. Gạch chân trong các đoạn văn bản DOCX được giữ khi hiển thị. Không tự suy đoán đáp án; phần đáp án cuối tài liệu được loại khỏi đề khi nhận diện tiêu đề `ĐÁP ÁN`/`ANSWER KEY`/`HƯỚNG DẪN CHẤM`, và giáo viên chọn đáp án trong trình sửa.
+
+Tệp mẫu Unit 1 được kiểm chứng có **47 câu: 35 trắc nghiệm, 12 tự luận, 8 phần**. Học sinh chọn đáp án hoặc nhập trả lời từng câu, lưu nháp và nộp bài; giáo viên xem lại từng câu. Chỉ câu trắc nghiệm có đáp án do giáo viên xác nhận được tự chấm. Điểm tự động của đề hỗn hợp ghi rõ số câu có đáp án và số câu chờ giáo viên chấm, không tính các câu chưa có đáp án thành sai.
+
+Giới hạn: DOCX 10 MB, phần XML văn bản sau giải nén 8 MB, tối đa 100 câu/bài. Tệp ảnh quét, đánh số tự động không có số trong văn bản, công thức/ảnh và bố cục khác có thể cần chỉnh lại; có cảnh báo với ảnh/công thức, cấu trúc lựa chọn lỗi sẽ bị từ chối thay vì âm thầm bỏ câu. Giáo viên cần đối chiếu bản xem trước với đề gốc. Cột `submissions.text_answers` được thêm tự động, giữ nguyên dữ liệu cũ. Backend và frontend cần được cập nhật cùng phiên bản.
+
+Kiểm thử dùng bản sao tệp mẫu trong `tests/fixtures/unit-1-exam.docx`: `npm test` kiểm tra tách đề, gạch chân, đoạn đọc, giới hạn, chấm điểm và nháp; bộ HTTP integration kiểm tra quyền nhập, lưu 47 câu và nộp/xem/chấm bài tự luận.
 
 ## Đồng bộ giao diện và backend
 

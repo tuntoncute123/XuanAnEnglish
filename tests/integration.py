@@ -12,6 +12,7 @@ import urllib.request
 from schedule_integration import check_schedules
 from notification_integration import check_notifications
 from student_account_integration import check_student_accounts
+from docx_integration import check_docx
 
 database_url = os.environ.get('TEST_DATABASE_URL')
 if not database_url or not database_url.split('?', 1)[0].rstrip('/').endswith('_test'):
@@ -128,6 +129,7 @@ with tempfile.TemporaryDirectory(prefix='an-english-test-') as directory:
             check_notifications(call)
             check_schedules(call)
             check_student_accounts(call, base)
+            check_docx(call, base, client)
             assert call('/api/logout', {})[0] == 200
             assert call('/api/manage')[0] == 401
             print('PASS: all teacher CRUD, recurring schedule, quiz auto-grading, multi-attachments, VietQR, student accounts, PWA/Web Push, cron reminders, and logout')

@@ -20,11 +20,19 @@ const optionalPassword = z
 export const quizQuestionSchema = z
   .object({
     id: z.string().trim().min(1).max(60),
-    prompt: z.string().trim().min(1).max(500),
-    options: z.array(z.string().trim().min(1).max(200)).min(2).max(6),
-    correctIndex: z.number().int().min(0).max(5),
+    prompt: z.string().trim().min(1).max(3000),
+    options: z.array(z.string().trim().min(1).max(1000)).max(6),
+    correctIndex: z.number().int().min(0).max(5).optional(),
+    kind: z.enum(['choice', 'text']).optional(),
+    number: z.number().int().positive().max(1000).optional(),
+    section: z.string().trim().max(300).optional(),
+    context: z.string().trim().max(15000).optional(),
   })
-  .refine(q => q.correctIndex < q.options.length, 'Đáp án đúng không hợp lệ');
+  .refine(q => q.kind === 'text' ? q.options.length === 0 && q.correctIndex === undefined
+    : q.options.length >= 2 && (q.correctIndex === undefined || q.correctIndex < q.options.length), 'Đáp án hoặc loại câu hỏi không hợp lệ');
+
+const questionsSchema = z.array(quizQuestionSchema).max(100)
+  .refine(qs => new Set(qs.map(q => q.id)).size === qs.length, 'Mã câu hỏi không được trùng');
 
 export const actionSchema = z.discriminatedUnion('action', [
   z.object({
@@ -122,7 +130,7 @@ export const actionSchema = z.discriminatedUnion('action', [
     instructions: z.string().trim().min(1).max(10000),
     deadline: date,
     file_id: z.string().nullable(),
-    questions: z.array(quizQuestionSchema).max(30).optional(),
+    questions: questionsSchema.optional(),
     notify: z.boolean().optional(),
   }),
   z.object({
@@ -133,7 +141,7 @@ export const actionSchema = z.discriminatedUnion('action', [
     instructions: z.string().trim().min(1).max(10000),
     deadline: date,
     file_id: z.string().nullable(),
-    questions: z.array(quizQuestionSchema).max(30).optional(),
+    questions: questionsSchema.optional(),
   }),
   z.object({ action: z.literal('delete_assignment'), id }),
   z.object({
@@ -171,6 +179,7 @@ export const studentSubmissionSchema = z.object({
   file_id: z.string().nullable().optional(),
   file_ids: z.array(z.string().trim().min(1)).max(6).optional(),
   quiz_answers: z.record(z.string(), z.number().int().min(0).max(5)).optional(),
+  text_answers: z.record(z.string().max(60), z.string().max(3000)).refine(v => Object.keys(v).length <= 100).optional(),
 });
 
 export const pushSubscriptionSchema = z.object({

@@ -2,6 +2,7 @@ import { all, get, parseJsonSafe, run } from './db';
 import { cleanupUnreferencedFiles, parseAttachmentsJson } from './files';
 import { getVapidConfig } from './push';
 import { addDays } from './schedule';
+import { validateQuestionAnswers } from './questions';
 import type {
   BankConfig,
   ParentMonthlySummary,
@@ -118,6 +119,7 @@ export async function buildStudentPortalData(student: StudentCore): Promise<Stud
       file_id: sub.file_id ? String(sub.file_id) : null,
       attachments,
       quiz_answers: parseJsonSafe<Record<string, number>>(sub.quiz_answers, {}),
+      text_answers: parseJsonSafe<Record<string, string>>(sub.text_answers, {}),
       submitted_at: String(sub.submitted_at),
       feedback: String(sub.feedback || ''),
       score: sub.score ? String(sub.score) : '',
@@ -129,10 +131,8 @@ export async function buildStudentPortalData(student: StudentCore): Promise<Stud
   const assignments: StudentAssignment[] = assignmentsRaw.map(a => {
     const parsedQuestions = parseJsonSafe<QuizQuestion[]>(a.questions, []);
     const hasSubmitted = submittedIds.has(Number(a.id));
-    const safeQuestions: StudentQuizQuestion[] = parsedQuestions.map(q =>
-      hasSubmitted
-        ? { id: q.id, prompt: q.prompt, options: q.options, correctIndex: q.correctIndex }
-        : { id: q.id, prompt: q.prompt, options: q.options },
+    const safeQuestions: StudentQuizQuestion[] = parsedQuestions.map(({ correctIndex, ...q }) =>
+      hasSubmitted ? { ...q, correctIndex } : q,
     );
     return {
       id: Number(a.id),
@@ -229,6 +229,7 @@ export async function submitStudentHomework(
     file_id?: string | null;
     file_ids?: string[];
     quiz_answers?: Record<string, number>;
+    text_answers?: Record<string, string>;
   },
 ) {
   const assignment = await get(
@@ -263,22 +264,12 @@ export async function submitStudentHomework(
 
   const questions = parseJsonSafe<QuizQuestion[]>(assignment.questions, []);
   const quizAnswers = input.quiz_answers || {};
+  const textAnswers = input.text_answers || {};
   const hasQuizAnswers = Object.keys(quizAnswers).length > 0;
+  const autoScore = validateQuestionAnswers(questions, quizAnswers, textAnswers);
 
-  if (!input.answer && attachments.length === 0 && !hasQuizAnswers) {
+  if (!input.answer.trim() && attachments.length === 0 && !hasQuizAnswers && !Object.values(textAnswers).some(value => value.trim())) {
     throw new Error('Empty submission');
-  }
-
-  let autoScore = '';
-  if (questions.length > 0 && hasQuizAnswers) {
-    let correctCount = 0;
-    for (const q of questions) {
-      if (quizAnswers[q.id] === q.correctIndex) {
-        correctCount++;
-      }
-    }
-    const tenScale = ((correctCount / questions.length) * 10).toFixed(1).replace(/\.0$/, '');
-    autoScore = `${correctCount}/${questions.length} (${tenScale}đ)`;
   }
 
   const existingSub = await get(
@@ -294,13 +285,14 @@ export async function submitStudentHomework(
 
   const primaryFileId = attachments[0]?.id || null;
   await run(
-    `INSERT INTO submissions(assignment_id, student_id, answer, file_id, attachments, quiz_answers, submitted_at, feedback, score, status)
-     VALUES(?,?,?,?,?,?,?,?,?,?)
+    `INSERT INTO submissions(assignment_id, student_id, answer, file_id, attachments, quiz_answers, text_answers, submitted_at, feedback, score, status)
+     VALUES(?,?,?,?,?,?,?,?,?,?,?)
      ON CONFLICT(assignment_id, student_id) DO UPDATE SET
        answer=excluded.answer,
        file_id=excluded.file_id,
        attachments=excluded.attachments,
        quiz_answers=excluded.quiz_answers,
+       text_answers=excluded.text_answers,
        submitted_at=excluded.submitted_at,
        feedback='',
        score=excluded.score,
@@ -311,6 +303,7 @@ export async function submitStudentHomework(
     primaryFileId,
     JSON.stringify(attachments),
     JSON.stringify(quizAnswers),
+    JSON.stringify(textAnswers),
     new Date().toISOString(),
     '',
     autoScore,

@@ -26,14 +26,13 @@ export type QuizQuestion = {
   id: string;
   prompt: string;
   options: string[];
-  correctIndex: number;
-};
-export type StudentQuizQuestion = {
-  id: string;
-  prompt: string;
-  options: string[];
   correctIndex?: number;
+  kind?: 'choice' | 'text';
+  number?: number;
+  section?: string;
+  context?: string;
 };
+export type StudentQuizQuestion = QuizQuestion;
 export type SubmissionAttachment = {
   id: string;
   name: string;
@@ -61,6 +60,7 @@ export type Submission = {
   file_id: string | null;
   attachments?: SubmissionAttachment[];
   quiz_answers?: Record<string, number>;
+  text_answers?: Record<string, string>;
   submitted_at: string;
   feedback: string;
   score?: string;

@@ -1,0 +1,20 @@
+.docx-importer { padding: 16px; margin: 18px 0; border: 1px solid #b6cabc; border-radius: 12px; background: #f6faf7; }
+.docx-importer > p, .docx-importer small { font-size: 13px; line-height: 1.6; }
+.docx-importer > button { max-width: 100%; white-space: normal; text-align: center; line-height: 1.6; }
+.docx-warning { color: #80541c; }
+.docx-preview { margin: 12px 0; }
+.docx-preview[open] { max-height: 55vh; overflow: auto; padding-right: 8px; }
+.docx-preview-question { padding: 12px 0; border-bottom: 1px solid #dce5df; overflow-wrap: anywhere; }
+.docx-preview summary, .quiz-builder-item summary, .question-context-repeat summary { cursor: pointer; line-height: 1.6; }
+.quiz-builder-item > label { margin-top: 12px; }
+.quiz-builder-item > summary { overflow-wrap: anywhere; }
+.quiz-builder > .inline { flex-wrap: wrap; gap: 8px; }
+.quiz-builder-options input:not([type=radio]) { min-width: 0; flex: 1; }
+.question-section { font-size: 16px; color: #305b43; margin: 0 0 12px; }
+.question-context { background: #f2f6f3; border-left: 3px solid #73977d; border-radius: 4px; padding: 14px; line-height: 1.8; margin-bottom: 16px; overflow-wrap: anywhere; }
+.question-context-repeat { font-size: 13px; margin-bottom: 12px; }
+.question-context-repeat .question-context { margin-top: 10px; }
+.quiz-prompt, .quiz-option { overflow-wrap: anywhere; }
+.quiz-option u, .docx-preview u { text-decoration-thickness: 2px; text-underline-offset: 3px; }
+.teacher-quiz-line { flex-wrap: wrap; gap: 6px; white-space: pre-wrap; overflow-wrap: anywhere; }
+@media (max-width: 600px) { .docx-importer { padding: 12px; } .question-context { padding: 10px; } }

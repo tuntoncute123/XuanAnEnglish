@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { StudentAssignment, Submission } from '@/lib/types';
-import { homeworkDraftKey, questionVersion, readHomeworkDraft, sameHomeworkContent, validQuizAnswers, type HomeworkContent, type HomeworkDraft } from '@/lib/homework-draft';
+import { homeworkDraftKey, questionVersion, readHomeworkDraft, sameHomeworkContent, validQuizAnswers, validTextAnswers, type HomeworkContent, type HomeworkDraft } from '@/lib/homework-draft';
 
 export function useHomeworkDraft(studentId: number, assignment: StudentAssignment, submission?: Submission) {
   const key = homeworkDraftKey(studentId, assignment.id);
@@ -10,10 +10,12 @@ export function useHomeworkDraft(studentId: number, assignment: StudentAssignmen
   const questions = assignment.questions || [];
   const signature = questionVersion(questions);
   const originalAnswers = JSON.stringify(submission?.quiz_answers || {});
+  const originalTextAnswers = JSON.stringify(submission?.text_answers || {});
   const baseline = useMemo<HomeworkContent>(() => ({
     answer: submission?.answer || '',
     quizAnswers: validQuizAnswers(JSON.parse(originalAnswers), JSON.parse(signature)),
-  }), [submission?.answer, originalAnswers, signature]);
+    textAnswers: validTextAnswers(JSON.parse(originalTextAnswers), JSON.parse(signature)),
+  }), [submission?.answer, originalAnswers, originalTextAnswers, signature]);
   const [content, setContent] = useState(baseline);
   const current = useRef(content);
   const [status, setStatus] = useState<'idle' | 'saved' | 'restored' | 'unavailable'>('idle');
@@ -26,7 +28,7 @@ export function useHomeworkDraft(studentId: number, assignment: StudentAssignmen
       const raw = localStorage.getItem(key);
       const draft = readHomeworkDraft(raw, submissionVersion, JSON.parse(signature));
       if (draft && !sameHomeworkContent(draft, baseline)) {
-        restored = { answer: draft.answer, quizAnswers: draft.quizAnswers };
+        restored = { answer: draft.answer, quizAnswers: draft.quizAnswers, textAnswers: draft.textAnswers || {} };
         setStatus('restored');
         setHasDraft(true);
       } else {
@@ -75,6 +77,11 @@ export function useHomeworkDraft(studentId: number, assignment: StudentAssignmen
     ...content, status, hasDraft, ready,
     setAnswer: (answer: string) => update({ ...current.current, answer }),
     setQuizChoice: (id: string, choice: number) => update({ ...current.current, quizAnswers: { ...current.current.quizAnswers, [id]: choice } }),
+    setTextAnswer: (id: string, value: string) => {
+      const textAnswers = { ...current.current.textAnswers };
+      if (value) textAnswers[id] = value; else delete textAnswers[id];
+      update({ ...current.current, textAnswers });
+    },
     discard: () => update(baseline),
     clearSavedDraft,
   };

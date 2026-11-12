@@ -6,6 +6,7 @@ import type { StudentAssignment, Submission, SubmissionAttachment } from '@/lib/
 import { homeworkState } from '@/lib/student-learning';
 import AudioRecorder from './audio-recorder';
 import { useHomeworkDraft } from './use-homework-draft';
+import QuestionText from './question-text';
 
 const formatDateVi = (date: string) => date.split('-').reverse().join('/');
 const formatDateTimeVi = (date: string) => new Date(date).toLocaleString('vi-VN', {
@@ -49,7 +50,8 @@ export default function AssignmentCard({
   const [recordedAudio, setRecordedAudio] = useState<File | null>(null);
   const { overdue, revision: needsRevision } = homeworkState(a, sub, todayStr);
   const questions = a.questions || [];
-  const answeredCount = questions.filter(q => Number.isInteger(quizAnswers[q.id]) && quizAnswers[q.id] >= 0 && quizAnswers[q.id] < q.options.length).length;
+  const answeredCount = questions.filter(q => q.kind === 'text' ? Boolean(draft.textAnswers?.[q.id]?.trim())
+    : Number.isInteger(quizAnswers[q.id]) && quizAnswers[q.id] >= 0 && quizAnswers[q.id] < q.options.length).length;
 
   useEffect(() => {
     if (highlighted) cardRef.current?.scrollIntoView({ block: 'start' });
@@ -174,6 +176,7 @@ export default function AssignmentCard({
                 file_id: file_ids[0] || null,
                 file_ids,
                 quiz_answers: questions.length > 0 ? quizAnswers : undefined,
+                text_answers: questions.length > 0 ? draft.textAnswers : undefined,
               }),
             });
             const submitJson = await submitRes.json();
@@ -194,7 +197,7 @@ export default function AssignmentCard({
         <fieldset disabled={busy || !draft.ready} aria-label={`Bài làm: ${a.title}`}>
         {questions.length > 0 && (
           <div className="quiz-block">
-            <strong className="quiz-heading">Câu hỏi trắc nghiệm ({questions.length} câu)</strong>
+            <strong className="quiz-heading">Làm bài trực tiếp ({questions.length} câu)</strong>
             <div className="student-quiz-progress">
               <span>Đã trả lời {answeredCount}/{questions.length} câu</span>
               <progress aria-label="Số câu đã trả lời" value={answeredCount} max={questions.length} />
@@ -204,10 +207,16 @@ export default function AssignmentCard({
               const hasKey = typeof q.correctIndex === 'number';
               return (
                 <div key={q.id} className="quiz-question-card">
-                  <p className="quiz-prompt">
-                    <strong>Câu {qIdx + 1}:</strong> {q.prompt}
+                  {q.section && (qIdx === 0 || q.section !== questions[qIdx - 1].section) && <h3 className="question-section">{q.section}</h3>}
+                  {q.context && (qIdx === 0 || q.context !== questions[qIdx - 1].context
+                    ? <div className="question-context pre-wrap"><QuestionText text={q.context} /></div>
+                    : <details className="question-context-repeat"><summary>Xem lại hướng dẫn / đoạn đọc</summary><div className="question-context pre-wrap"><QuestionText text={q.context} /></div></details>)}
+                  <p className="quiz-prompt pre-wrap">
+                    <strong>Câu {q.number || qIdx + 1}:</strong> <QuestionText text={q.prompt} />
                   </p>
-                  <div className="quiz-options">
+                  {q.kind === 'text' ? <label>Câu trả lời câu {q.number || qIdx + 1}
+                    <textarea aria-label={`Câu trả lời câu ${q.number || qIdx + 1}`} rows={2} maxLength={3000} value={draft.textAnswers?.[q.id] || ''} onChange={event => draft.setTextAnswer(q.id, event.target.value)} placeholder="Nhập câu trả lời của con…" />
+                  </label> : <div className="quiz-options">
                     {q.options.map((opt, optIdx) => {
                       const isChosen = chosen === optIdx;
                       const isCorrect = hasKey && q.correctIndex === optIdx;
@@ -221,11 +230,11 @@ export default function AssignmentCard({
                           onClick={() => draft.setQuizChoice(q.id, optIdx)}
                         >
                           <span className="quiz-letter">{String.fromCharCode(65 + optIdx)}</span>
-                          <span>{opt}</span>
+                          <span><QuestionText text={opt} /></span>
                         </button>
                       );
                     })}
-                  </div>
+                  </div>}
                 </div>
               );
             })}
@@ -249,7 +258,7 @@ export default function AssignmentCard({
             ? 'Trình duyệt chưa lưu được nháp. Con giữ trang này mở và nộp bài trước khi rời trang nhé.'
             : draft.status === 'restored' ? 'Đã khôi phục bản nháp trên thiết bị này. Bản nháp chưa được nộp cho cô.'
               : draft.status === 'saved' ? 'Đã lưu nháp trên thiết bị này · Chưa nộp cho cô.'
-                : 'Câu trả lời và lựa chọn trắc nghiệm sẽ tự lưu nháp trên thiết bị này.'}</p>
+                : 'Câu trả lời từng câu, bài viết và lựa chọn trắc nghiệm sẽ tự lưu nháp trên thiết bị này.'}</p>
           <small>Ảnh, tệp và bản ghi âm mới chưa được lưu nháp. Con cần nộp bài trước khi chuyển mục hoặc rời trang để giữ các tệp này.</small>
           {draft.hasDraft && <div className="homework-draft-actions">
             {confirmDiscard ? <>

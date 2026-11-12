@@ -31,6 +31,9 @@ import type { Assignment, Attendance, Class, Data, QuizQuestion, Session, Studen
 import { monthlyReport } from '@/lib/report';
 import SessionForm from './session-form';
 import ScheduleBoard from './schedule-board';
+import DocxImporter from './docx-importer';
+import QuizBuilder from './quiz-builder';
+import { prepareQuestions } from '@/lib/questions';
 import { assignmentReminder, notificationErrorMessage } from '@/lib/notification';
 
 const money = (n: number) => new Intl.NumberFormat('vi-VN').format(n) + ' đ';
@@ -54,15 +57,6 @@ function randomPass(): string {
     out += chars[Math.floor(Math.random() * chars.length)];
   }
   return out;
-}
-
-function makeQuizQuestion(): QuizQuestion {
-  return {
-    id: `q_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-    prompt: '',
-    options: ['', '', '', ''],
-    correctIndex: 0,
-  };
 }
 
 export default function Dashboard({ initial }: { initial: Data }) {
@@ -280,15 +274,6 @@ export default function Dashboard({ initial }: { initial: Data }) {
     URL.revokeObjectURL(url);
   }
 
-  function cleanValidQuizzes(drafts: QuizQuestion[]): QuizQuestion[] {
-    return drafts
-      .map(q => {
-        const cleanOpts = q.options.map(o => o.trim()).filter(Boolean);
-        const safeCorrect = q.correctIndex < cleanOpts.length ? q.correctIndex : 0;
-        return { ...q, prompt: q.prompt.trim(), options: cleanOpts, correctIndex: safeCorrect };
-      })
-      .filter(q => q.prompt.length > 0 && q.options.length >= 2);
-  }
 
   return (
     <div className="app-shell">
@@ -946,7 +931,7 @@ export default function Dashboard({ initial }: { initial: Data }) {
                       <div className="inline between">
                         <div className="inline" style={{ gap: 6, flexWrap: 'wrap' }}>
                           <span className="badge">{currentClass(a.class_id)?.name}</span>
-                          {quizCount > 0 && <span className="badge">{quizCount} câu trắc nghiệm</span>}
+                          {quizCount > 0 && <span className="badge">{quizCount} câu hỏi</span>}
                         </div>
                         <div className="inline">
                           <small>Hạn nộp: {a.deadline.split('-').reverse().join('/')}</small>
@@ -1008,18 +993,19 @@ export default function Dashboard({ initial }: { initial: Data }) {
                             </summary>
                             {s.answer && <p className="pre-wrap">{s.answer}</p>}
 
-                            {quizCount > 0 && s.quiz_answers && Object.keys(s.quiz_answers).length > 0 && (
+                            {quizCount > 0 && (Object.keys(s.quiz_answers || {}).length > 0 || Object.keys(s.text_answers || {}).length > 0) && (
                               <div className="teacher-quiz-summary">
                                 {(a.questions || []).map((q, qi) => {
                                   const picked = s.quiz_answers?.[q.id];
-                                  const ok = picked === q.correctIndex;
+                                  const hasKey = typeof q.correctIndex === 'number';
+                                  const ok = hasKey && picked === q.correctIndex;
                                   return (
                                     <div key={q.id} className="teacher-quiz-line">
                                       <span>
-                                        Câu {qi + 1}: {picked !== undefined ? String.fromCharCode(65 + picked) : '—'}
+                                        Câu {q.number || qi + 1}: {q.kind === 'text' ? (s.text_answers?.[q.id] || 'Chưa trả lời') : picked !== undefined ? String.fromCharCode(65 + picked) : 'Chưa trả lời'}
                                       </span>
-                                      <strong style={{ color: ok ? '#346d50' : '#a64439' }}>
-                                        {ok ? '✓ Đúng' : `✗ Đáp án ${String.fromCharCode(65 + q.correctIndex)}`}
+                                      <strong style={{ color: !hasKey ? '#68736c' : ok ? '#346d50' : '#a64439' }}>
+                                        {!hasKey ? 'Giáo viên chấm' : ok ? '✓ Đúng' : `✗ Đáp án ${String.fromCharCode(65 + q.correctIndex!)}`}
                                       </strong>
                                     </div>
                                   );
@@ -1339,6 +1325,9 @@ export default function Dashboard({ initial }: { initial: Data }) {
                 e.preventDefault();
                 const form = new FormData(e.currentTarget);
                 const values = Object.fromEntries(form);
+                let preparedQuestions: QuizQuestion[] = [];
+                try { if (modal === 'assignment') preparedQuestions = prepareQuestions(quizDrafts); }
+                catch (err) { setError((err as Error).message); return; }
                 let file_id = null;
 
                 if (modal === 'notify') {
@@ -1377,7 +1366,7 @@ export default function Dashboard({ initial }: { initial: Data }) {
                   ...(modal === 'assignment'
                     ? {
                         file_id,
-                        questions: cleanValidQuizzes(quizDrafts),
+                        questions: preparedQuestions,
                         notify: form.get('notify') === 'on',
                       }
                     : {}),
@@ -1480,6 +1469,7 @@ export default function Dashboard({ initial }: { initial: Data }) {
                     </label>
                   </div>
 
+                  <DocxImporter onApply={setQuizDrafts} onBusy={setBusy} busy={busy} existingCount={quizDrafts.length} />
                   <QuizBuilder drafts={quizDrafts} onChange={setQuizDrafts} />
 
                   <label className="checkbox-row">
@@ -1700,6 +1690,9 @@ export default function Dashboard({ initial }: { initial: Data }) {
               onSubmit={async e => {
                 e.preventDefault();
                 const fd = new FormData(e.currentTarget);
+                let preparedQuestions: QuizQuestion[];
+                try { preparedQuestions = prepareQuestions(quizDrafts); }
+                catch (err) { setError((err as Error).message); return; }
                 let file_id = keepAssignmentFile ? editingAssignment.file_id : null;
                 const newFile = fd.get('file') as File | null;
                 if (newFile && newFile.size > 0) {
@@ -1725,7 +1718,7 @@ export default function Dashboard({ initial }: { initial: Data }) {
                   instructions: String(fd.get('instructions') || ''),
                   deadline: String(fd.get('deadline') || ''),
                   file_id,
-                  questions: cleanValidQuizzes(quizDrafts),
+                  questions: preparedQuestions,
                 });
               }}
             >
@@ -1757,6 +1750,7 @@ export default function Dashboard({ initial }: { initial: Data }) {
                 <input name="file" type="file" accept=".pdf,.docx,.jpg,.jpeg,.png,.webp,.mp3,.wav,.txt" />
               </label>
 
+              <DocxImporter onApply={setQuizDrafts} onBusy={setBusy} busy={busy} existingCount={quizDrafts.length} />
               <QuizBuilder drafts={quizDrafts} onChange={setQuizDrafts} />
 
               <DeleteConfirmRow
@@ -1892,85 +1886,6 @@ export default function Dashboard({ initial }: { initial: Data }) {
           </section>
         </div>
       )}
-    </div>
-  );
-}
-
-function QuizBuilder({
-  drafts,
-  onChange,
-}: {
-  drafts: QuizQuestion[];
-  onChange: (next: QuizQuestion[]) => void;
-}) {
-  return (
-    <div className="quiz-builder">
-      <div className="inline between">
-        <strong style={{ fontSize: 12 }}>Câu hỏi trắc nghiệm tự chấm ({drafts.length})</strong>
-        <button
-          type="button"
-          className="soft-button"
-          onClick={() => onChange([...drafts, makeQuizQuestion()])}
-        >
-          <Plus size={14} /> Thêm câu hỏi
-        </button>
-      </div>
-
-      {drafts.map((q, qIdx) => (
-        <div key={q.id} className="quiz-builder-item">
-          <div className="inline between">
-            <small>Câu {qIdx + 1}</small>
-            <button
-              type="button"
-              className="text-button"
-              onClick={() => onChange(drafts.filter((_, i) => i !== qIdx))}
-            >
-              Xóa câu
-            </button>
-          </div>
-          <input
-            placeholder="Nội dung câu hỏi (VD: Choose the correct animal)"
-            value={q.prompt}
-            maxLength={500}
-            onChange={e =>
-              onChange(drafts.map((item, i) => (i === qIdx ? { ...item, prompt: e.target.value } : item)))
-            }
-          />
-          <div className="quiz-builder-options">
-            {q.options.map((opt, optIdx) => (
-              <div key={optIdx} className="inline">
-                <input
-                  type="radio"
-                  name={`correct-${q.id}`}
-                  checked={q.correctIndex === optIdx}
-                  onChange={() =>
-                    onChange(drafts.map((item, i) => (i === qIdx ? { ...item, correctIndex: optIdx } : item)))
-                  }
-                  aria-label={`Đáp án đúng câu ${qIdx + 1} lựa chọn ${optIdx + 1}`}
-                />
-                <input
-                  placeholder={`Đáp án ${String.fromCharCode(65 + optIdx)}${optIdx >= 2 ? ' (tùy chọn)' : ''}`}
-                  value={opt}
-                  maxLength={200}
-                  style={{ flex: 1 }}
-                  onChange={e =>
-                    onChange(
-                      drafts.map((item, i) =>
-                        i === qIdx
-                          ? { ...item, options: item.options.map((o, oi) => (oi === optIdx ? e.target.value : o)) }
-                          : item,
-                      ),
-                    )
-                  }
-                />
-              </div>
-            ))}
-          </div>
-          <small className="muted" style={{ margin: 0 }}>
-            Chọn nút tròn bên trái để đánh dấu đáp án đúng.
-          </small>
-        </div>
-      ))}
     </div>
   );
 }
