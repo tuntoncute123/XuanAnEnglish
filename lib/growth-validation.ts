@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { managementFailure } from './manage-api.ts';
 export const positiveId = z.number().int().positive();
 export const shortText = z.string().trim().min(1).max(200);
 export const daySchema = z
@@ -15,6 +16,13 @@ export class FeatureError extends Error {
   constructor(message: string, status = 400) {
     super(message);
     this.status = status;
+  }
+}
+export async function featureBody(req: Request): Promise<unknown> {
+  try {
+    return await req.json();
+  } catch {
+    throw new FeatureError('Nội dung yêu cầu không phải JSON hợp lệ.');
   }
 }
 export function featureError(error: unknown) {
@@ -36,8 +44,6 @@ export function featureError(error: unknown) {
     'Learning feature:',
     error instanceof Error ? error.message : 'Unknown error',
   );
-  return Response.json(
-    { error: 'Không thực hiện được. Hãy tải lại và thử lại.' },
-    { status: 400 },
-  );
+  const failure = managementFailure(error);
+  return Response.json(failure.body, { status: failure.status });
 }

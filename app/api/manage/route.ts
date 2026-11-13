@@ -7,7 +7,7 @@ import { sendPushToStudents } from '@/lib/push';
 import { actionSchema } from '@/lib/schemas';
 import { createScheduledSessions, changeScheduledSessions, lockSchedule } from '@/lib/schedule-service';
 import { ScheduleError } from '@/lib/schedule';
-import { MANAGEMENT_API_VERSION, managementValidationError } from '@/lib/manage-api';
+import { MANAGEMENT_API_VERSION, ManagementError, managementFailure, managementValidationError } from '@/lib/manage-api';
 
 export const runtime = 'nodejs';
 
@@ -21,7 +21,21 @@ export async function GET() {
   if (!(await isAdmin())) {
     return respond({ error: 'Vui lòng đăng nhập.' }, { status: 401 });
   }
-  return respond(await snapshot());
+  try {
+    return respond(await snapshot());
+  } catch (error) {
+    return failure(error);
+  }
+}
+
+function failure(error: unknown) {
+  if (error instanceof ScheduleError) return respond({ error: error.message }, { status: error.status });
+  const result = managementFailure(error);
+  if (result.status === 500) {
+    // Do not log SQL parameters, credentials or student data.
+    console.error('Management API failure', { code: error && typeof error === 'object' && 'code' in error ? error.code : 'UNKNOWN' });
+  }
+  return respond(result.body, { status: result.status });
 }
 
 export async function POST(req: Request) {
@@ -30,7 +44,13 @@ export async function POST(req: Request) {
   }
 
   try {
-    const parsed = actionSchema.safeParse(await req.json());
+    let body: unknown;
+    try {
+      body = await req.json();
+    } catch {
+      return respond({ code: 'INVALID_JSON', error: 'Nội dung yêu cầu không phải JSON hợp lệ.' }, { status: 400 });
+    }
+    const parsed = actionSchema.safeParse(body);
     if (!parsed.success) {
       return respond(managementValidationError(parsed.error), { status: 400 });
     }
@@ -223,7 +243,7 @@ export async function POST(req: Request) {
             new Set(a.records.map(r => r.student_id)).size !== expected.length ||
             a.records.some(r => !expected.some(s => s.id === r.student_id))
           ) {
-            throw Error('Danh sách học viên không khớp lớp.');
+            throw new ManagementError('Danh sách học viên không khớp lớp. Hãy tải lại danh sách trước khi điểm danh.');
           }
           for (const r of a.records) {
             await client.run(
@@ -242,7 +262,7 @@ export async function POST(req: Request) {
 
       case 'assignment': {
         if (a.file_id && !(await get('SELECT id FROM files WHERE id=? AND owner_token IS NULL', a.file_id))) {
-          throw Error('Tài liệu không hợp lệ.');
+          throw new ManagementError('Tài liệu không hợp lệ. Hãy tải lại tệp đính kèm.');
         }
         const inserted = await all(
           'INSERT INTO assignments(class_id,title,instructions,deadline,file_id,questions) VALUES(?,?,?,?,?,?) RETURNING id',
@@ -278,7 +298,7 @@ export async function POST(req: Request) {
         }
         if (a.file_id && a.file_id !== existing.file_id) {
           const fileRow = await get('SELECT id FROM files WHERE id=? AND owner_token IS NULL', a.file_id);
-          if (!fileRow) throw Error('Tài liệu không hợp lệ.');
+          if (!fileRow) throw new ManagementError('Tài liệu không hợp lệ. Hãy tải lại tệp đính kèm.');
         }
         await run(
           'UPDATE assignments SET class_id=?, title=?, instructions=?, deadline=?, file_id=?, questions=? WHERE id=?',
@@ -418,7 +438,6 @@ export async function POST(req: Request) {
 
     return respond(await snapshot());
   } catch (error) {
-    if (error instanceof ScheduleError) return respond({ error: error.message }, { status: error.status });
-    return respond({ error: 'Không lưu được dữ liệu. Kiểm tra thông tin và thử lại.' }, { status: 400 });
+    return failure(error);
   }
 }

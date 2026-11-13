@@ -3,6 +3,29 @@ import type { ZodError } from 'zod';
 // Exposed on GET, including 401 responses, to verify the backend without sending a notification.
 export const MANAGEMENT_API_VERSION = '3';
 
+/** Expected business errors must be distinguished from server failures. */
+export class ManagementError extends Error {
+  status: number;
+  constructor(message: string, status = 400) {
+    super(message);
+    this.status = status;
+  }
+}
+
+export function managementFailure(error: unknown) {
+  if (error instanceof ManagementError) {
+    return { status: error.status, body: { code: 'INVALID_OPERATION', error: error.message } };
+  }
+  const code = error && typeof error === 'object' && 'code' in error ? error.code : undefined;
+  if (code === '23503') {
+    return { status: 409, body: { code: 'RELATED_DATA', error: 'Dữ liệu liên quan đã thay đổi hoặc bản ghi vẫn đang được sử dụng. Hãy tải lại và kiểm tra lớp, học viên hoặc buổi học liên quan.' } };
+  }
+  if (code === '23505') {
+    return { status: 409, body: { code: 'DUPLICATE_DATA', error: 'Dữ liệu này đã tồn tại. Hãy tải lại và kiểm tra trước khi lưu tiếp.' } };
+  }
+  return { status: 500, body: { code: 'SERVER_ERROR', error: 'Máy chủ gặp lỗi khi xử lý yêu cầu. Hãy tải lại để kiểm tra dữ liệu trước khi thử lưu lại.' } };
+}
+
 export function managementValidationError(error: ZodError) {
   const issues = error.issues.map(issue => ({ field: issue.path.map(String).join('.'), message: issue.message }));
   if (issues.some(issue => issue.field === 'action')) {

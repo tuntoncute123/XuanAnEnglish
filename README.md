@@ -109,6 +109,16 @@ Kiểm chứng: `npm test` bổ sung kiểm thử tuần/múi giờ, lịch ôn,
 
 ## Đồng bộ giao diện và backend
 
+Kiểm tra backend và đường chuyển tiếp API bằng lệnh chỉ đọc (không đăng nhập, không sửa dữ liệu hoặc gửi thông báo):
+
+```bash
+npm run check:backend -- https://api-xuanan.163.61.72.199.nip.io https://xuan-an-english.vercel.app
+```
+
+Lệnh kiểm tra phiên bản `/api/manage` và sự hiện diện của API học tập/phụ huynh/học viên. HTTP 401 là kết quả đúng khi chưa đăng nhập; thiếu header phiên bản hoặc HTTP 404 là không đạt. Lệnh thoát với mã 1 nếu có kiểm tra không đạt. Nếu cả Coolify và Vercel cùng thiếu phiên bản/cùng thiếu endpoint, cần cập nhật backend Coolify; nếu chỉ Vercel không đạt, kiểm tra cấu hình chuyển tiếp `/api/*`. Không bỏ kiểm tra phiên bản ở giao diện hoặc gắn header giả ở proxy để vượt qua bảo vệ lịch.
+
+Với mã hiện tại, lỗi kiểm tra dữ liệu/thao tác trả 400 kèm lý do, xung đột dữ liệu liên quan/trùng bản ghi trả 409, còn lỗi máy chủ/cơ sở dữ liệu bất ngờ trả 500 với `code: SERVER_ERROR`. Lỗi 500 không có nghĩa là chắc chắn chưa ghi dữ liệu: hãy tải lại kiểm tra trước khi gửi lại. Backend cũ có thể vẫn gộp những lỗi này thành 400 chung chung.
+
 Khi cập nhật chức năng, triển khai backend Coolify và giao diện Vercel từ cùng mã nguồn, backend trước. Các yêu cầu `/api/*` trên trang Vercel được chuyển tới Coolify nên tính năng mới như `action: "notify"` cần có trong backend đang chạy. Schema cũ chỉ biết các thao tác lớp/học viên/buổi học/bài tập sẽ trả lỗi chung `Dữ liệu chưa hợp lệ` khi nhận yêu cầu gửi thông báo, kể cả khi tiêu đề, nội dung và mã bài tập đều đúng.
 
 API hiện tại trả header `X-XuanAn-API-Version: 3` trên `/api/manage`, kể cả phản hồi 401 khi chưa đăng nhập. Có thể kiểm tra phiên bản bằng GET mà không gửi thông báo cho học viên:

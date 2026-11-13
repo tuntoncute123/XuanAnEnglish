@@ -8,7 +8,8 @@
     "start": "next start --hostname 127.0.0.1",
     "typecheck": "tsc --noEmit",
     "test": "node --experimental-strip-types --test tests/*.test.ts",
-    "test:integration": "python3 tests/integration.py"
+    "test:integration": "python3 tests/integration.py",
+    "check:backend": "node scripts/check-backend.mjs"
   },
   "dependencies": {
     "fast-xml-parser": "^5.12.0",

@@ -2,7 +2,7 @@ import { cookies } from 'next/headers';
 import { sameOrigin } from '@/lib/auth';
 import { PARENT_COOKIE, sessionParent } from '@/lib/parent-auth';
 import { parentAction, parentData } from '@/lib/family-service';
-import { featureError } from '@/lib/growth-validation';
+import { featureBody, featureError } from '@/lib/growth-validation';
 export const runtime = 'nodejs';
 export async function GET(req: Request) {
   const parent = await sessionParent();
@@ -33,8 +33,8 @@ export async function POST(req: Request) {
       { status: 401 },
     );
   try {
-    const body = await req.json();
-    if (body?.action === 'logout') (await cookies()).delete(PARENT_COOKIE);
+    const body = await featureBody(req);
+    if (body && typeof body === 'object' && 'action' in body && body.action === 'logout') (await cookies()).delete(PARENT_COOKIE);
     else await parentAction(parent.id, body);
     return Response.json({ ok: true });
   } catch (e) {

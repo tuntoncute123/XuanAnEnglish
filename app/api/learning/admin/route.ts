@@ -3,7 +3,7 @@ import { bankAction, bankData } from '@/lib/bank-service';
 import { familyAdminAction, familyAdminData } from '@/lib/family-service';
 import { speakingAdminAction, speakingAdminData } from '@/lib/speaking-service';
 import { vocabAction, vocabData } from '@/lib/vocab-service';
-import { FeatureError, featureError } from '@/lib/growth-validation';
+import { FeatureError, featureBody, featureError } from '@/lib/growth-validation';
 export const runtime = 'nodejs';
 export async function GET(req: Request) {
   if (!(await isAdmin()))
@@ -28,8 +28,8 @@ export async function POST(req: Request) {
   if (!(await isAdmin()))
     return Response.json({ error: 'Vui lòng đăng nhập.' }, { status: 401 });
   try {
-    const body = await req.json();
-    const action = String(body?.action || '');
+    const body = await featureBody(req);
+    const action = String(body && typeof body === 'object' && 'action' in body ? body.action : '');
     if (
       action.startsWith('bank_') ||
       ['generate_exam', 'remedial'].includes(action)
