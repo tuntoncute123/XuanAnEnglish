@@ -10,6 +10,12 @@ const date = z
 const time = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/);
 const classColor = z.enum(['green', 'purple', 'orange']).optional();
 const sessionScope = z.enum(['single', 'following']).default('single');
+const recurrenceSchema = z.object({
+  weekdays: z.array(z.number().int().min(0).max(6)).min(1).max(7)
+    .refine(days => new Set(days).size === days.length),
+  until: date,
+  exclude_dates: z.array(date).max(366).default([]),
+});
 
 const optionalPassword = z
   .string()
@@ -92,12 +98,7 @@ export const actionSchema = z.discriminatedUnion('action', [
     duration: z.number().int().min(15).max(480),
     topic: z.string().max(300),
     repeat_weeks: z.number().int().min(1).max(52).optional(),
-    recurrence: z.object({
-      weekdays: z.array(z.number().int().min(0).max(6)).min(1).max(7)
-        .refine(days => new Set(days).size === days.length),
-      until: date,
-      exclude_dates: z.array(date).max(366).default([]),
-    }).optional(),
+    recurrence: recurrenceSchema.optional(),
   }),
   z.object({
     action: z.literal('update_session'),
@@ -108,6 +109,8 @@ export const actionSchema = z.discriminatedUnion('action', [
     time,
     duration: z.number().int().min(15).max(480),
     topic: z.string().max(300),
+    // Omitted: preserve occurrences. Object: rebuild weekly. Null: one lesson.
+    recurrence: recurrenceSchema.nullable().optional(),
   }),
   z.object({ action: z.literal('delete_session'), id, scope: sessionScope }),
   z.object({ action: z.literal('cancel_session'), id, scope: sessionScope, reason: z.string().trim().min(1).max(300) }),

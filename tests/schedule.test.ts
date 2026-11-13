@@ -3,10 +3,46 @@ import assert from 'node:assert/strict';
 import { addDays, daysBetween, endTime, firstConflict, moveOccurrences, planSessions, selectOccurrences, weekStart } from '../lib/schedule.ts';
 import { actionSchema } from '../lib/schemas.ts';
 import { monthlyReport } from '../lib/report.ts';
+import { managementValidationError } from '../lib/manage-api.ts';
 import type { Data, Session } from '../lib/types.ts';
 
 const draft = { class_id: 1, date: '2028-02-21', time: '17:00', duration: 90, topic: 'Family' };
 const session = (id: number, date: string, more: Partial<Session> = {}): Session => ({ ...draft, id, date, series_id: 'weekly', status: 'scheduled', ...more });
+
+test('reported class-only edit accepts a blank topic and keeps the Sunday 15:00 slot', () => {
+  const before = session(7, '2026-11-15', { time: '15:00', topic: '' });
+  const update = actionSchema.parse({ action: 'update_session', id: before.id, scope: 'single',
+    class_id: 2, date: before.date, time: before.time, duration: 90, topic: '' });
+  assert.equal(update.action, 'update_session');
+  if (update.action !== 'update_session') return;
+  const targets = selectOccurrences([before, session(8, '2026-11-22')], before, update.scope, new Set(), '2026-11-13');
+  const moved = moveOccurrences(targets, before, update);
+  assert.equal(moved.length, 1);
+  assert.equal(moved[0].class_id, 2);
+  assert.equal(moved[0].date, '2026-11-15');
+  assert.equal(moved[0].time, '15:00');
+  assert.equal(before.class_id, 1);
+});
+
+test('weekly Sunday requests retain recurrence through API validation and include next week', () => {
+  const request = actionSchema.parse({ action: 'session', class_id: 2, date: '2026-11-15', time: '15:00',
+    duration: 90, topic: '', recurrence: { weekdays: [0], until: '2026-12-06', exclude_dates: [] } });
+  assert.equal(request.action, 'session');
+  if (request.action !== 'session') return;
+  assert.deepEqual(planSessions(request).map(s => s.date), ['2026-11-15', '2026-11-22', '2026-11-29', '2026-12-06']);
+});
+
+test('invalid schedule fields are identified in Vietnamese, including indexed recurrence dates', () => {
+  const result = actionSchema.safeParse({ action: 'session', ...draft, time: '25:00', duration: 0,
+    recurrence: { weekdays: [7], until: '2028-02-30', exclude_dates: ['not-a-date'] } });
+  assert.equal(result.success, false);
+  if (result.success) return;
+  const error = managementValidationError(result.error);
+  assert.equal(error.code, 'INVALID_INPUT');
+  for (const field of ['giờ bắt đầu', 'thời lượng', 'các thứ trong tuần', 'ngày kết thúc', 'ngày nghỉ']) {
+    assert.ok(error.error.includes(field), error.error);
+  }
+});
 
 test('multiple weekdays include the end date, cross leap day, and skip holidays', () => {
   const planned = planSessions({ ...draft, recurrence: { weekdays: [1, 4], until: '2028-03-02', exclude_dates: ['2028-02-24'] } });

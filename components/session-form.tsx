@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { CalendarDays, RotateCcw, Trash2, X } from 'lucide-react';
 import { addDays, firstConflict, moveOccurrences, planSessions, schoolToday, selectOccurrences, weekdays } from '@/lib/schedule';
+import { planScheduleEdit, reconcileOccurrences, recurrenceDefaults } from '@/lib/schedule-edit';
 import type { ScheduleScope, SessionDraft } from '@/lib/schedule';
 import type { Data, Session } from '@/lib/types';
 
@@ -27,28 +28,42 @@ export default function SessionForm({ data, session, defaultDate, classId, busy,
     duration: session?.duration || 90,
     topic: session?.topic || '',
   }));
-  const [weekly, setWeekly] = useState(false);
-  const [days, setDays] = useState<number[]>([new Date(`${defaultDate}T00:00:00Z`).getUTCDay()]);
-  const [until, setUntil] = useState(addDays(defaultDate, 83));
-  const [excluded, setExcluded] = useState<string[]>([]);
+  const [initialRecurrence] = useState(() => session ? recurrenceDefaults(data.sessions, session) : {
+    weekdays: [new Date(`${defaultDate}T00:00:00Z`).getUTCDay()], until: addDays(defaultDate, 83), exclude_dates: [],
+  });
+  const [mode, setMode] = useState<'keep' | 'single' | 'weekly'>(session?.series_id ? 'keep' : 'single');
+  const weekly = mode === 'weekly';
+  const [days, setDays] = useState<number[]>(initialRecurrence.weekdays);
+  const [until, setUntil] = useState(initialRecurrence.until);
+  const [excluded, setExcluded] = useState<string[]>(initialRecurrence.exclude_dates);
   const [holiday, setHoliday] = useState('');
   const [scope, setScope] = useState<ScheduleScope>('single');
   const [reason, setReason] = useState('');
   const [localError, setLocalError] = useState('');
   const [deleting, setDeleting] = useState(false);
   const dialog = useRef<HTMLElement>(null);
+  const errorNotice = useRef<HTMLParagraphElement>(null);
   const cancelled = session?.status === 'cancelled';
   const recorded = new Set(data.attendance.map(a => a.session_id));
   const targets = session ? selectOccurrences(data.sessions, session, scope, recorded, schoolToday()) : [];
   const protectedSession = Boolean(session && scope === 'single' && recorded.has(session.id));
   const canChange = !busy && !protectedSession && (!session || targets.length > 0);
   const recurrence = weekly ? { weekdays: days, until, exclude_dates: excluded } : undefined;
+  const editRecurrence = recurrence || (session?.series_id && mode === 'single' ? null : undefined);
+  const rebuilding = Boolean(session && editRecurrence !== undefined);
 
   let planned: SessionDraft[] = [];
+  let skipped = 0;
   let previewError = '';
   try {
     if (!draft.date || !draft.time || !draft.duration || (weekly && !until)) throw Error('Hãy điền đầy đủ ngày, giờ và thời lượng.');
-    planned = session ? moveOccurrences(targets, session, draft) : planSessions({ ...draft, recurrence });
+    if (session && !cancelled) {
+      const plan = planScheduleEdit(data.sessions, session, scope, recorded, schoolToday(), { ...draft, recurrence: editRecurrence });
+      planned = plan.planned;
+      skipped = plan.skipped;
+    } else {
+      planned = session ? moveOccurrences(targets, session, draft) : planSessions({ ...draft, recurrence });
+    }
     if (session) for (const occurrence of planned) planSessions(occurrence);
     if (session && scope === 'following' && planned.some(s => s.date < schoolToday())) throw Error('Không thể dời chuỗi lịch về trước ngày hôm nay.');
   } catch (e) {
@@ -57,6 +72,11 @@ export default function SessionForm({ data, session, defaultDate, classId, busy,
   const targetIds = new Set(targets.map(s => s.id));
   const conflict = firstConflict(planned, data.sessions.filter(s => !targetIds.has(s.id)));
   if (conflict) previewError = `Trùng lớp ${data.classes.find(c => c.id === conflict.existing.class_id)?.name || ''} · ${dateLabel(conflict.existing.date)} lúc ${conflict.existing.time}.`;
+  const changes = rebuilding && !previewError && session ? reconcileOccurrences(targets, session, planned) : undefined;
+
+  useEffect(() => {
+    if (error || localError) errorNotice.current?.scrollIntoView({ block: 'nearest' });
+  }, [error, localError]);
 
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null;
@@ -98,21 +118,21 @@ export default function SessionForm({ data, session, defaultDate, classId, busy,
           </div>
           <button className="icon-button" disabled={busy} onClick={onClose} aria-label="Đóng"><X size={20} /></button>
         </div>
-        {(error || localError) && <p className="error" role="alert">{localError || error}</p>}
+        {(error || localError) && <p ref={errorNotice} className="error" role="alert">{localError || error}</p>}
         <form onSubmit={async e => {
           e.preventDefault();
           if (!canChange || previewError || cancelled) return;
           setLocalError('');
-          await onSave(session ? { action: 'update_session', id: session.id, scope, ...draft } : { action: 'session', ...draft, recurrence },
-            session ? `Đã cập nhật ${targets.length} buổi học` : `Đã tạo ${planned.length} buổi học`);
+          await onSave(session ? { action: 'update_session', id: session.id, scope, ...draft, recurrence: editRecurrence } : { action: 'session', ...draft, recurrence },
+            session ? `Đã cập nhật lịch gồm ${planned.length} buổi học` : `Đã tạo ${planned.length} buổi học`);
         }}>
           {session?.series_id && !cancelled && <label>
             Phạm vi thay đổi
-            <select value={scope} onChange={e => { setScope(e.target.value as ScheduleScope); setDeleting(false); setLocalError(''); }} disabled={busy}>
+            <select value={scope} onChange={e => { setScope(e.target.value as ScheduleScope); setMode('keep'); setDeleting(false); setLocalError(''); }} disabled={busy}>
               <option value="single">Chỉ buổi học này</option>
               <option value="following">Buổi này và các buổi tiếp theo trong chuỗi</option>
             </select>
-            {scope === 'following' && <span className="muted">Áp dụng {targets.length} buổi chưa điểm danh từ hôm nay. Giữ lại buổi đã qua, đã điểm danh hoặc đã hủy. Đổi ngày sẽ dịch các buổi cùng số ngày; giờ, thời lượng và nội dung mới áp dụng cho tất cả.</span>}
+            {scope === 'following' && <span className="muted">Áp dụng {targets.length} buổi chưa điểm danh từ hôm nay. Giữ lại buổi đã qua, đã điểm danh hoặc đã hủy.{mode === 'keep' ? ' Đổi ngày sẽ dịch các buổi cùng số ngày; lớp, giờ, thời lượng và nội dung mới áp dụng cho tất cả.' : ''}</span>}
           </label>}
           {protectedSession && <p className="schedule-notice">Buổi đã điểm danh được giữ nguyên để bảo toàn học phí. Bạn vẫn có thể sửa điểm danh và nhận xét tại mục Điểm danh.</p>}
           {cancelled && <p className="schedule-notice">Đã hủy: {session?.cancellation_reason}. Buổi này không tính vào số buổi học và có thể khôi phục khi không trùng lịch.</p>}
@@ -123,10 +143,16 @@ export default function SessionForm({ data, session, defaultDate, classId, busy,
                 {data.classes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
             </label>
-            {!session && <div className="schedule-mode" role="group" aria-label="Kiểu lịch học">
-              <button type="button" aria-pressed={!weekly} className={!weekly ? 'selected' : ''} onClick={() => setWeekly(false)}>Một buổi</button>
-              <button type="button" aria-pressed={weekly} className={weekly ? 'selected' : ''} onClick={() => setWeekly(true)}>Cố định hằng tuần</button>
-            </div>}
+            <div className="schedule-mode" role="group" aria-label="Kiểu lịch học">
+              {session?.series_id && <button type="button" aria-pressed={mode === 'keep'} className={mode === 'keep' ? 'selected' : ''} onClick={() => setMode('keep')}>Giữ lịch hiện có</button>}
+              <button type="button" aria-pressed={mode === 'single'} className={mode === 'single' ? 'selected' : ''} onClick={() => setMode('single')}>Một buổi</button>
+              <button type="button" aria-pressed={weekly} className={weekly ? 'selected' : ''} onClick={() => setMode('weekly')}>Cố định hằng tuần</button>
+            </div>
+            {rebuilding && <p className="schedule-notice">{weekly
+              ? scope === 'following' ? 'Lập lại các buổi trong phạm vi theo các thứ, ngày kết thúc và ngày nghỉ bên dưới. Các ngày không còn được chọn sẽ được bỏ khỏi lịch.'
+                : 'Chuyển buổi đang sửa thành một chuỗi hằng tuần. Những buổi khác đã có vẫn giữ nguyên; lịch trùng giờ sẽ được báo trước khi lưu.'
+              : scope === 'following' ? 'Chuyển phạm vi đã chọn về một buổi: giữ buổi bên dưới, bỏ các buổi còn lại chưa điểm danh trong phạm vi.'
+                : 'Tách buổi này khỏi chuỗi thành một buổi riêng. Các buổi khác trong chuỗi giữ nguyên.'}</p>}
             <div className="form-grid">
               <label>{weekly ? 'Từ ngày' : 'Ngày học'}<input type="date" name="date" value={draft.date} required onChange={e => setDraft({ ...draft, date: e.target.value })} /></label>
               <label>Giờ bắt đầu<input type="time" name="time" value={draft.time} required onChange={e => setDraft({ ...draft, time: e.target.value })} /></label>
@@ -157,6 +183,8 @@ export default function SessionForm({ data, session, defaultDate, classId, busy,
             {previewError ? <p>{previewError}</p> : <>
               <strong><CalendarDays size={16} /> {planned.length} buổi {session ? 'trong phạm vi thay đổi' : 'sẽ được tạo'}</strong>
               <p>{planned.slice(0, 5).map(s => dateLabel(s.date)).join(' · ')}{planned.length > 5 ? ` … đến ${dateLabel(planned.at(-1)!.date)}` : ''}</p>
+              {changes && <p>Cập nhật {changes.writes.filter(w => w.id !== undefined).length} buổi · Tạo thêm {changes.writes.filter(w => w.id === undefined).length} buổi · Bỏ {changes.removed.length} buổi khỏi lịch.</p>}
+              {skipped > 0 && <p>Giữ nguyên {skipped} ngày đã hủy hoặc đã điểm danh, không tạo lại các ngày này.</p>}
             </>}
           </div>}
           {session && !protectedSession && <div className="schedule-actions">
@@ -172,7 +200,7 @@ export default function SessionForm({ data, session, defaultDate, classId, busy,
           </div>}
           <div className="form-footer">
             <button type="button" className="secondary" onClick={onClose} disabled={busy}>Đóng</button>
-            {!cancelled && <button className="primary" disabled={!canChange || !draft.class_id || Boolean(previewError) || !planned.length}>{busy ? 'Đang lưu…' : session ? `Cập nhật ${targets.length} buổi` : `Tạo ${planned.length} buổi học`}</button>}
+            {!cancelled && <button className="primary" disabled={!canChange || !draft.class_id || Boolean(previewError) || !planned.length}>{busy ? 'Đang lưu…' : session ? `Cập nhật lịch ${planned.length} buổi` : `Tạo ${planned.length} buổi học`}</button>}
           </div>
         </form>
       </section>

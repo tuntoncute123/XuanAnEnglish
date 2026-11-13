@@ -4,6 +4,7 @@
 .schedule-mode { display: flex; gap: 4px; padding: 4px; border: 1px solid var(--border); background: #f5f8f2; border-radius: 9px; }
 .schedule-mode button { flex: 1; padding: 9px 13px; border-radius: 6px; font-size: 11px; white-space: nowrap; }
 .schedule-mode button.selected { background: white; color: var(--green); box-shadow: 0 1px 5px #26483215; font-weight: 600; }
+.schedule-fields > .schedule-mode { flex-wrap: wrap; }
 .weekday-field { border: 0; padding: 0; margin: 0; min-width: 0; }
 .weekday-field legend { font-size: 12px; margin-bottom: 10px; }
 .weekday-options { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }

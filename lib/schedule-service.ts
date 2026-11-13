@@ -1,12 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import { transaction } from './db';
-import { firstConflict, moveOccurrences, planSessions, ScheduleError, schoolToday, selectOccurrences } from './schedule';
+import { firstConflict, planSessions, ScheduleError, schoolToday, selectOccurrences } from './schedule';
+import { planScheduleEdit, reconcileOccurrences } from './schedule-edit';
+import type { SessionUpdate } from './schedule-edit';
 import type { CreateSessionInput, ScheduleScope, SessionDraft } from './schedule';
 import type { Session } from './types';
 
 type Client = Parameters<Parameters<typeof transaction>[0]>[0];
 type Change =
-  | ({ action: 'update_session'; id: number; scope: ScheduleScope } & SessionDraft)
+  | ({ action: 'update_session'; id: number; scope: ScheduleScope } & SessionUpdate)
   | { action: 'delete_session'; id: number; scope: ScheduleScope }
   | { action: 'cancel_session'; id: number; scope: ScheduleScope; reason: string }
   | { action: 'restore_session'; id: number };
@@ -62,12 +64,25 @@ export async function changeScheduledSessions(change: Change) {
     if (makeup.length && change.action !== 'restore_session') throw new ScheduleError('Buổi này có học bù đã đăng ký. Hãy gỡ lịch bù chưa điểm danh trước khi thay đổi lịch.');
 
     if (change.action === 'update_session') {
-      if (targets.some(s => s.status === 'cancelled')) throw new ScheduleError('Hãy khôi phục buổi đã hủy trước khi đổi lịch.');
-      const drafts = moveOccurrences(targets, anchor, change);
-      if (scope === 'following' && drafts.some(s => s.date < schoolToday())) {
-        throw new ScheduleError('Không thể dời chuỗi lịch về trước ngày hôm nay.');
-      }
+      const { planned: drafts } = planScheduleEdit(sessions, anchor, scope, recorded, schoolToday(), change);
       await assertAvailable(client, drafts, ids);
+      if (change.recurrence !== undefined) {
+        const { writes, removed } = reconcileOccurrences(targets, anchor, drafts);
+        const linked = (await client.run('SELECT id FROM leave_requests WHERE session_id=ANY(?::int[])', removed)).rows;
+        if (linked.length) throw new ScheduleError('Buổi cần bỏ khỏi chuỗi đang có yêu cầu xin nghỉ. Hãy giữ ngày này trong lịch hoặc hủy từng buổi để bảo toàn yêu cầu.');
+        const seriesId = change.recurrence ? (scope === 'following' ? anchor.series_id : null) || randomUUID() : null;
+        for (const { draft: s, id } of writes) {
+          if (id !== undefined) {
+            await client.run('UPDATE sessions SET class_id=?,date=?,time=?,duration=?,topic=?,series_id=? WHERE id=?',
+              s.class_id, s.date, s.time, s.duration, s.topic, seriesId, id);
+          } else {
+            await client.run('INSERT INTO sessions(class_id,date,time,duration,topic,series_id) VALUES(?,?,?,?,?,?)',
+              s.class_id, s.date, s.time, s.duration, s.topic, seriesId);
+          }
+        }
+        await client.run('DELETE FROM sessions WHERE id=ANY(?::int[])', removed);
+        return;
+      }
       for (let i = 0; i < targets.length; i++) {
         const s = drafts[i];
         await client.run('UPDATE sessions SET class_id=?,date=?,time=?,duration=?,topic=? WHERE id=?', s.class_id, s.date, s.time, s.duration, s.topic, targets[i].id);

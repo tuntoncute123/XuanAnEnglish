@@ -53,7 +53,7 @@ with tempfile.TemporaryDirectory(prefix='an-english-test-') as directory:
             try:
                 urllib.request.urlopen(base + '/api/manage')
             except urllib.error.HTTPError as response:
-                assert response.code == 401 and response.headers.get('X-XuanAn-API-Version') == '2'
+                assert response.code == 401 and response.headers.get('X-XuanAn-API-Version') == '3'
             assert call('/api/login', {'password':password}, origin=False)[0] == 403
             wrong = call('/api/login', {'password':'wrong'})
             assert wrong[0] == 401, wrong

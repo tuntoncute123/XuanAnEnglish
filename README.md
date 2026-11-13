@@ -42,6 +42,10 @@ Vào **Thời khóa biểu → Thêm buổi học → Cố định hằng tuần
 
 Chọn **Quản lý** ở một buổi để sửa hoặc nghỉ học. Phạm vi **Buổi này và các buổi tiếp theo trong chuỗi** chỉ áp dụng những buổi từ mốc đã chọn, không trước hôm nay, chưa điểm danh và chưa hủy. Đổi ngày sẽ dời tất cả buổi trong phạm vi cùng số ngày; lớp, giờ, thời lượng và nội dung mới áp dụng cho toàn bộ phạm vi. Hủy lịch lưu lý do để học viên xem; khôi phục kiểm tra trùng giờ lại. Xóa vĩnh viễn có bước xác nhận và không cho xóa buổi đã điểm danh. Các buổi lặp đã tạo bằng phiên bản cũ vẫn giữ nguyên dữ liệu nhưng chưa có mã chuỗi, nên tiếp tục quản lý từng buổi.
 
+Trong **Quản lý buổi học**, có thể chuyển một buổi đã tạo nhầm thành **Cố định hằng tuần**, chọn nhiều thứ, ngày bắt đầu/kết thúc và ngày nghỉ; đồng thời sửa lớp, giờ, thời lượng, nội dung. Ngày tạo lại chuỗi phải từ hôm nay. Với chuỗi đã có, chọn phạm vi **Buổi này và các buổi tiếp theo trong chuỗi** rồi **Cố định hằng tuần** để đổi các thứ, gia hạn/rút ngắn hoặc thêm ngày nghỉ. Mặc định **Giữ lịch hiện có** chỉ sửa thông tin/dời ngày như trước. Các thứ, ngày kết thúc và ngày nghỉ được gợi ý từ những buổi đang lưu; buổi đã xóa được coi là khoảng nghỉ khi suy ra lịch.
+
+Chọn **Một buổi** để tách riêng buổi đang sửa, hoặc thu gọn các buổi chưa điểm danh trong phạm vi đã chọn về một buổi. Phần xem trước báo số buổi cập nhật, tạo thêm và bỏ đi trước khi lưu. Việc lập lại chuỗi giữ nguyên các buổi đã qua, đã điểm danh, đã hủy; không tạo lại ngày đã hủy/điểm danh trong cùng chuỗi. Buổi có học bù đã đặt vẫn được bảo vệ; không bỏ buổi đang có yêu cầu xin nghỉ. Máy chủ kiểm tra trùng giờ và lưu toàn bộ thay đổi trong một giao dịch, giữ mã buổi ở những ngày còn lại. Tính năng sửa kiểu lịch yêu cầu API phiên bản **3**; giao diện chặn lưu trên backend cũ để tránh báo thành công nhưng chỉ sửa một buổi.
+
 Cổng học viên hiển thị 90 ngày sắp tới và 30 ngày gần đây, ưu tiên buổi sắp tới theo thứ tự ngày/giờ; hiển thị rõ buổi đã hủy và lý do. Lịch dùng giờ Việt Nam. Các cột trạng thái và mã chuỗi được bổ sung tự động vào PostgreSQL khi ứng dụng kết nối, không cần xóa dữ liệu cũ.
 
 ## Kiểm chứng
@@ -107,11 +111,15 @@ Kiểm chứng: `npm test` bổ sung kiểm thử tuần/múi giờ, lịch ôn,
 
 Khi cập nhật chức năng, triển khai backend Coolify và giao diện Vercel từ cùng mã nguồn, backend trước. Các yêu cầu `/api/*` trên trang Vercel được chuyển tới Coolify nên tính năng mới như `action: "notify"` cần có trong backend đang chạy. Schema cũ chỉ biết các thao tác lớp/học viên/buổi học/bài tập sẽ trả lỗi chung `Dữ liệu chưa hợp lệ` khi nhận yêu cầu gửi thông báo, kể cả khi tiêu đề, nội dung và mã bài tập đều đúng.
 
-API hiện tại trả header `X-XuanAn-API-Version: 2` trên `/api/manage`, kể cả phản hồi 401 khi chưa đăng nhập. Có thể kiểm tra phiên bản bằng GET mà không gửi thông báo cho học viên:
+API hiện tại trả header `X-XuanAn-API-Version: 3` trên `/api/manage`, kể cả phản hồi 401 khi chưa đăng nhập. Có thể kiểm tra phiên bản bằng GET mà không gửi thông báo cho học viên:
 
 ```bash
 curl -sS -D - -o /dev/null https://api-xuanan.163.61.72.199.nip.io/api/manage
 curl -sS -D - -o /dev/null https://xuan-an-english.vercel.app/api/manage
 ```
 
-Sau khi cập nhật cả hai môi trường, cả hai địa chỉ cần trả header phiên bản `2`. Lỗi kiểm tra dữ liệu có `code` (`INVALID_INPUT` hoặc `UNSUPPORTED_ACTION`) và `issues` chỉ rõ trường bị từ chối. Với backend cũ còn trả lỗi chung cho một yêu cầu thông báo hợp lệ, giao diện sẽ hướng dẫn đồng bộ phiên bản. Tiêu đề nhắc bài tự động được rút gọn tối đa 120 ký tự; bài đã quá hạn vẫn được nhắc và chỉ học viên của lớp chưa nộp bài nhận thông báo.
+Sau khi cập nhật cả hai môi trường, cả hai địa chỉ cần trả header phiên bản `3`. Lỗi kiểm tra dữ liệu có `code` (`INVALID_INPUT` hoặc `UNSUPPORTED_ACTION`) và `issues` chỉ rõ trường bị từ chối. Với backend cũ còn trả lỗi chung cho một yêu cầu thông báo hợp lệ, giao diện sẽ hướng dẫn đồng bộ phiên bản. Tiêu đề nhắc bài tự động được rút gọn tối đa 120 ký tự; bài đã quá hạn vẫn được nhắc và chỉ học viên của lớp chưa nộp bài nhận thông báo.
+
+Trước mọi thao tác tạo/sửa/hủy/khôi phục/xóa lịch, giao diện kiểm tra phiên bản API bằng GET không dùng cache. Backend thiếu header hoặc có phiên bản nhỏ hơn `2` sẽ bị chặn trước khi gửi thay đổi, với thông báo máy chủ cần cập nhật. Điều này ngăn backend cũ bỏ qua `recurrence` rồi chỉ tạo một buổi, hoặc bỏ qua `scope` rồi chỉ sửa/xóa một buổi dù giao diện đã chọn cả chuỗi. Các thao tác khác giữ nguyên luồng hiện có.
+
+Nếu lịch cố định từng được lưu qua backend cũ thành một buổi, cập nhật mã không tự khôi phục các buổi thiếu: backend cũ không lưu các thứ/ngày kết thúc/ngày nghỉ đã chọn. Sau khi đồng bộ backend, kiểm tra lịch hiện có rồi tạo phần còn thiếu từ tuần tiếp theo để tránh trùng buổi đã lưu. Đổi nhầm lớp dùng **Quản lý → Lớp học → Cập nhật**; buổi đã điểm danh vẫn được bảo vệ.

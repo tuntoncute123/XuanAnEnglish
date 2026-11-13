@@ -36,6 +36,7 @@ import DocxImporter from './docx-importer';
 import QuizBuilder from './quiz-builder';
 import { prepareQuestions } from '@/lib/questions';
 import { assignmentReminder, notificationErrorMessage } from '@/lib/notification';
+import { postManagementAction } from '@/lib/manage-client';
 
 const money = (n: number) => new Intl.NumberFormat('vi-VN').format(n) + ' đ';
 const today = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
@@ -129,11 +130,7 @@ export default function Dashboard({ initial }: { initial: Data }) {
     setBusy(true);
     setError('');
     try {
-      const r = await fetch('/api/manage', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
+      const r = await postManagementAction(body);
       const d = await r.json();
       if (!r.ok) throw Error(notificationErrorMessage(body, r.status, d));
       const { notify_summary, ...snapshotData } = d;

@@ -19,11 +19,33 @@ def check_schedules(call):
     start += timedelta(days=(-start.weekday()) % 7)
     day = lambda offset: (start + timedelta(days=offset)).isoformat()
     draft = {'class_id': 1, 'date': day(0), 'time': '09:00', 'duration': 90, 'topic': 'Schedule integration'}
+
+    # Reported case: change only the class of an unrecorded Sunday lesson with no topic.
+    before_ids = {s['id'] for s in snapshot()['sessions']}
+    sunday = {**draft, 'date': day(6), 'time': '15:00', 'topic': ''}
+    single_data = post({'action': 'session', **sunday})
+    single = next(s for s in single_data['sessions'] if s['id'] not in before_ids)
+    post({'action': 'update_session', **sunday, 'id': single['id'], 'scope': 'single', 'class_id': 2})
+    reloaded = snapshot()
+    changed = next(s for s in reloaded['sessions'] if s['id'] == single['id'])
+    assert changed == {**single, 'class_id': 2}, (single, changed)
+    for class_id in [1, 2]:
+        student = next(s for s in reloaded['students'] if s['class_id'] == class_id)
+        _, portal = call('/api/student/' + student['token'])
+        assert any(s['id'] == single['id'] for s in portal['sessions']) == (class_id == 2)
+    post({'action': 'delete_session', 'id': single['id']})
+
     payload = {'action': 'session', **draft, 'recurrence': {'weekdays': [1, 4], 'until': day(27), 'exclude_dates': [day(3)]}}
     created = post(payload)
     chain = [s for s in created['sessions'] if s['topic'] == draft['topic']]
     assert [s['date'] for s in chain] == [day(i) for i in [0, 7, 10, 14, 17, 21, 24]]
     assert len({s['series_id'] for s in chain}) == 1 and chain[0]['series_id']
+    # A fresh page load and the student portal must both include the following week.
+    persisted = [s for s in snapshot()['sessions'] if s['series_id'] == chain[0]['series_id']]
+    assert persisted == chain
+    student = next(s for s in created['students'] if s['class_id'] == draft['class_id'])
+    _, portal = call('/api/student/' + student['token'])
+    assert any(s['id'] == chain[1]['id'] and s['date'] == day(7) for s in portal['sessions'])
     original_ids = {s['id'] for s in chain}
     anchor = chain[0]
 
@@ -116,4 +138,68 @@ def check_schedules(call):
     assert remaining == {recorded_id, cancelled_id}, remaining
     post({'action': 'delete_session', 'id': cancelled_id})
     post({'action': 'restore_session', 'id': cancelled_id}, 404)
-    print('PASS: weekly recurrence, holiday exclusions, atomic conflict checks, concurrent writes, series edits, cancellations, protected attendance, and student schedule')
+    check_recurrence_edits(post, snapshot, day)
+    print('PASS: class-only edits with blank topic, next-week persistence, weekly recurrence, holiday exclusions, atomic conflict checks, concurrent writes, series edits, cancellations, protected attendance, and student schedule')
+
+
+def check_recurrence_edits(post, snapshot, day):
+    draft = {'class_id': 1, 'date': day(0), 'time': '07:00', 'duration': 60, 'topic': 'Convert single to weekly'}
+    created = post({'action': 'session', **draft})
+    anchor = next(s for s in created['sessions'] if s['topic'] == draft['topic'])
+    update = {'action': 'update_session', **draft, 'id': anchor['id'], 'scope': 'single', 'class_id': 2,
+              'time': '07:30', 'duration': 45, 'topic': 'Edited weekly',
+              'recurrence': {'weekdays': [1, 4], 'until': day(27), 'exclude_dates': [day(3)]}}
+    converted = post(update)
+    chain = [s for s in converted['sessions'] if s['topic'] == update['topic']]
+    assert [s['date'] for s in chain] == [day(i) for i in [0, 7, 10, 14, 17, 21, 24]]
+    assert chain[0]['id'] == anchor['id']
+    series = chain[0]['series_id']
+    assert series and all(s['series_id'] == series and s['class_id'] == 2 and s['time'] == '07:30' and s['duration'] == 45 for s in chain)
+    assert [s for s in snapshot()['sessions'] if s['series_id'] == series] == chain
+
+    # Convert then edit weekdays, extend the end date and skip a holiday atomically.
+    extend = {**update, 'scope': 'following', 'recurrence': {'weekdays': [1, 3], 'until': day(35), 'exclude_dates': [day(9)]}}
+    blocker_data = post({'action': 'session', **draft, 'date': day(35), 'topic': 'Conversion blocker'})
+    blocker = next(s for s in blocker_data['sessions'] if s['topic'] == 'Conversion blocker')
+    before = snapshot()['sessions']
+    post(extend, 409)
+    assert snapshot()['sessions'] == before
+    post({'action': 'delete_session', 'id': blocker['id']})
+    extended = post(extend)
+    chain = [s for s in extended['sessions'] if s['series_id'] == series]
+    assert [s['date'] for s in chain] == [day(i) for i in [0, 2, 7, 14, 16, 21, 23, 28, 30, 35]]
+    assert chain[0]['id'] == anchor['id']
+    # Repeating a save does not duplicate occurrences or replace retained IDs.
+    assert [s for s in post(extend)['sessions'] if s['series_id'] == series] == chain
+
+    cancelled = next(s for s in chain if s['date'] == day(7))
+    recorded = next(s for s in chain if s['date'] == day(14))
+    post({'action': 'cancel_session', 'id': cancelled['id'], 'reason': 'Keep cancellation'})
+    students = [s for s in snapshot()['students'] if s['class_id'] == 2]
+    post({'action': 'attendance', 'session_id': recorded['id'], 'records': [
+        {'student_id': s['id'], 'status': 'present', 'focus': 4, 'homework': 5, 'note': 'Protected'} for s in students]})
+    protected = {s['id']: s for s in snapshot()['sessions'] if s['id'] in [cancelled['id'], recorded['id']]}
+    post({**update, 'id': recorded['id']}, 400)
+    post({**update, 'id': cancelled['id']}, 400)
+    shortened = post({**extend, 'recurrence': {'weekdays': [1], 'until': day(21), 'exclude_dates': []}})
+    remaining = [s for s in shortened['sessions'] if s['series_id'] == series]
+    assert [s['date'] for s in remaining] == [day(i) for i in [0, 7, 14, 21]]
+    assert all(next(s for s in remaining if s['id'] == sid) == before for sid, before in protected.items())
+
+    # Return the editable part of the chain to one lesson without touching protected history.
+    collapsed = post({**extend, 'recurrence': None})
+    single = next(s for s in collapsed['sessions'] if s['id'] == anchor['id'])
+    assert single['series_id'] is None
+    assert {s['id'] for s in collapsed['sessions'] if s['series_id'] == series} == set(protected)
+    assert all(next(s for s in collapsed['sessions'] if s['id'] == sid) == before for sid, before in protected.items())
+    post({'action': 'delete_session', 'id': anchor['id']})
+
+    # A single-scope conversion must not alter or silently absorb the other series slots.
+    detached_data = post({'action': 'session', **draft, 'topic': 'Detach', 'repeat_weeks': 2})
+    detaching = [s for s in detached_data['sessions'] if s['topic'] == 'Detach']
+    post({'action': 'update_session', **draft, 'id': detaching[0]['id'], 'recurrence': None})
+    assert next(s for s in snapshot()['sessions'] if s['id'] == detaching[1]['id']) == detaching[1]
+    assert next(s for s in snapshot()['sessions'] if s['id'] == detaching[0]['id'])['series_id'] is None
+    for s in detaching:
+        post({'action': 'delete_session', 'id': s['id']})
+    print('PASS: single-to-weekly conversion, all fields, weekday/end/holiday edits, stable IDs, atomic conflicts, protected history and weekly-to-single conversion')
