@@ -58,6 +58,8 @@ export async function changeScheduledSessions(change: Change) {
       throw new ScheduleError('Buổi học đã điểm danh được giữ lại để bảo toàn học phí và nhận xét. Chỉ thay đổi các buổi chưa điểm danh.');
     }
     const ids = targets.map(s => s.id);
+    const makeup = (await client.run("SELECT id FROM leave_requests WHERE makeup_session_id=ANY(?::int[]) OR (session_id=ANY(?::int[]) AND makeup_session_id IS NOT NULL)", ids, ids)).rows;
+    if (makeup.length && change.action !== 'restore_session') throw new ScheduleError('Buổi này có học bù đã đăng ký. Hãy gỡ lịch bù chưa điểm danh trước khi thay đổi lịch.');
 
     if (change.action === 'update_session') {
       if (targets.some(s => s.status === 'cancelled')) throw new ScheduleError('Hãy khôi phục buổi đã hủy trước khi đổi lịch.');

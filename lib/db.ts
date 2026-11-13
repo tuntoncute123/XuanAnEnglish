@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { hashPassword, normalizeUsername, suggestUsername } from './password';
 import type { BankConfig, QuizQuestion, SubmissionAttachment } from './types';
+import { growthSchema } from './growth-schema';
 
 export const dataDir = process.env.DATA_DIR || join(process.cwd(), 'data');
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 10 });
@@ -168,6 +169,7 @@ async function initialize() {
     await client.query('BEGIN');
     await client.query('SELECT pg_advisory_xact_lock(823761426)');
     await client.query(schema);
+    await client.query(growthSchema);
     await seed(client);
     await backfillUsernames(client);
     await client.query('COMMIT');

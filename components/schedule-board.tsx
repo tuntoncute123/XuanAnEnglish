@@ -56,7 +56,7 @@ export default function ScheduleBoard({ data, day, filter, onDay, onEdit, onAtte
             </div>
           </article>;
         })}
-        {!visible.some(s => s.date === date) && <button className="calendar-empty" onClick={() => { onDay(date); onCreate(); }}><Plus size={15} /> Thêm buổi học</button>}
+        <button type="button" className="calendar-empty" aria-label={`Thêm buổi học ${label(date)}`} onClick={() => { onDay(date); onCreate(); }}><Plus size={15} /> Thêm buổi học</button>
       </section>)}
     </div>
     <div className="panel-footer"><CalendarDays size={14} /> Giờ Việt Nam · Buổi đã hủy vẫn hiển thị lý do và không tính vào tổng số buổi.</div>

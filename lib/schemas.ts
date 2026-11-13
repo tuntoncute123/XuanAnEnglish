@@ -19,6 +19,10 @@ const optionalPassword = z
 
 export const quizQuestionSchema = z
   .object({
+    unit: z.string().trim().max(120).optional(),
+    topic: z.string().trim().max(120).optional(),
+    difficulty: z.enum(['easy', 'medium', 'hard']).optional(),
+    explanation: z.string().trim().max(3000).optional(),
     id: z.string().trim().min(1).max(60),
     prompt: z.string().trim().min(1).max(3000),
     options: z.array(z.string().trim().min(1).max(1000)).max(6),

@@ -29,6 +29,7 @@ import {
 } from 'lucide-react';
 import type { Assignment, Attendance, Class, Data, QuizQuestion, Session, Student } from '@/lib/types';
 import { monthlyReport } from '@/lib/report';
+import GrowthAdmin from './growth-admin';
 import SessionForm from './session-form';
 import ScheduleBoard from './schedule-board';
 import DocxImporter from './docx-importer';
@@ -48,6 +49,7 @@ const nav = [
   ['attendance', 'Điểm danh & nhận xét', ClipboardCheck],
   ['homework', 'Bài tập về nhà', BookOpen],
   ['fees', 'Học phí & báo cáo', Wallet],
+  ['learning', 'Học tập mở rộng', BookOpen],
 ] as const;
 
 function randomPass(): string {
@@ -420,6 +422,7 @@ export default function Dashboard({ initial }: { initial: Data }) {
             </div>
           </div>
 
+          {tab === 'learning' && <GrowthAdmin data={data} onRefresh={async () => { const r=await fetch('/api/manage',{cache:'no-store'}); if(!r.ok) throw Error('Không tải được dữ liệu lớp.'); setData(await r.json()); }}/>}
           {tab === 'overview' && (
             <>
               <section className="welcome-strip">
@@ -596,7 +599,7 @@ export default function Dashboard({ initial }: { initial: Data }) {
             </>
           )}
 
-          {tab !== 'overview' && tab !== 'settings' && (
+          {tab !== 'overview' && tab !== 'settings' && tab !== 'learning' && (
             <div className="toolbar">
               <div className="tabs">
                 <button className={!filter ? 'selected' : ''} onClick={() => setFilter(0)}>

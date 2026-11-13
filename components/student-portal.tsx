@@ -26,11 +26,12 @@ import {
 } from 'lucide-react';
 import type { StudentPortalData } from '@/lib/types';
 import { homeworkStats, selectHomework, type HomeworkFilter, type HomeworkSort } from '@/lib/student-learning';
+import StudentPractice from './student-practice';
 import AssignmentCard from './student-assignment-card';
 import StudentLearningOverview from './student-learning-overview';
 import { PwaGuideModal, PwaInstallBanner, usePwaAndPush } from './student-pwa';
 
-type StudentTab = 'homework' | 'notifications' | 'schedule' | 'account';
+type StudentTab = 'practice' | 'homework' | 'notifications' | 'schedule' | 'account';
 
 const money = (n: number) => new Intl.NumberFormat('vi-VN').format(n) + ' đ';
 
@@ -113,7 +114,7 @@ export default function StudentPortal({ token }: { token?: string }) {
     const params = new URLSearchParams(window.location.search);
     const qTab = params.get('tab');
     const qAssignment = Number(params.get('assignment'));
-    if (qTab === 'notifications' || qTab === 'schedule' || qTab === 'account' || qTab === 'homework') {
+    if (qTab === 'practice' || qTab === 'notifications' || qTab === 'schedule' || qTab === 'account' || qTab === 'homework') {
       setTab(qTab);
     }
     if (Number.isInteger(qAssignment) && qAssignment > 0) {
@@ -310,6 +311,7 @@ export default function StudentPortal({ token }: { token?: string }) {
             Đăng nhập tài khoản để làm bài tập trên mọi thiết bị và nhận thông báo từ cô An.
           </p>
 
+          <a href="/parent" className="text-button">Đăng nhập dành cho phụ huynh →</a>
           <form onSubmit={handleLogin}>
             <label>
               Tên đăng nhập
@@ -498,6 +500,7 @@ export default function StudentPortal({ token }: { token?: string }) {
         )}
 
         <div className="student-desktop-tabs" role="tablist" aria-label="Mục học tập">
+          <button type="button" role="tab" aria-selected={tab === 'practice'} className={tab === 'practice' ? 'active' : ''} onClick={() => setTab('practice')}><Sparkles size={16}/> Luyện tập</button>
           <button type="button" role="tab" aria-selected={tab === 'homework'} className={tab === 'homework' ? 'active' : ''} onClick={() => setTab('homework')}>
             <BookOpen size={16} /> Bài tập ({assignmentStats.pending > 0 ? `${assignmentStats.pending} cần làm` : assignmentStats.total})
           </button>
@@ -512,6 +515,7 @@ export default function StudentPortal({ token }: { token?: string }) {
           </button>
         </div>
 
+        {tab === 'practice' && <StudentPractice key={data.student.id} token={token}/>}
         {/* TAB 1: HOMEWORK */}
         {tab === 'homework' && (
           <section className="student-section">
@@ -900,6 +904,7 @@ export default function StudentPortal({ token }: { token?: string }) {
       </main>
 
       <nav className="student-bottom-nav" aria-label="Điều hướng học viên">
+        <button type="button" className={tab === 'practice' ? 'active' : ''} onClick={() => setTab('practice')}><Sparkles size={20}/><span>Luyện tập</span></button>
         <button
           type="button"
           className={tab === 'homework' ? 'active' : ''}

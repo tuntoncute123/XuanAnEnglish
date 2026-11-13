@@ -18,12 +18,13 @@ export async function cleanupUnreferencedFiles(candidateIds: (string | null | un
   const unique = [...new Set(candidateIds.filter((v): v is string => typeof v === 'string' && v.trim().length > 0))];
   if (!unique.length) return 0;
 
-  const [assignmentRows, submissionRows] = await Promise.all([
+  const [assignmentRows, submissionRows, speakingRows] = await Promise.all([
     all('SELECT file_id FROM assignments WHERE file_id IS NOT NULL'),
     all('SELECT file_id, attachments FROM submissions'),
+    all('SELECT file_id FROM speaking_attempts'),
   ]);
 
-  const referenced = new Set<string>();
+  const referenced = new Set<string>(speakingRows.map(r => String(r.file_id)));
   for (const row of assignmentRows) {
     if (row.file_id) referenced.add(String(row.file_id));
   }

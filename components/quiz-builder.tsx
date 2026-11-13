@@ -3,13 +3,13 @@
 import type { QuizQuestion } from '@/lib/types';
 import QuestionText from './question-text';
 
-export default function QuizBuilder({ drafts, onChange }: { drafts: QuizQuestion[]; onChange: (next: QuizQuestion[]) => void }) {
+export default function QuizBuilder({ drafts, onChange, maxQuestions = 100 }: { drafts: QuizQuestion[]; onChange: (next: QuizQuestion[]) => void; maxQuestions?: number }) {
   function update(index: number, changes: Partial<QuizQuestion>) { onChange(drafts.map((q, i) => i === index ? { ...q, ...changes } : q)); }
   return <div className="quiz-builder">
     <div className="inline between">
-      <strong>Câu hỏi làm trực tiếp ({drafts.length}/100)</strong>
+      <strong>Câu hỏi làm trực tiếp ({drafts.length}/{maxQuestions})</strong>
       <div className="inline">
-        {(['choice', 'text'] as const).map(kind => <button key={kind} type="button" className="soft-button" disabled={drafts.length >= 100}
+        {(['choice', 'text'] as const).map(kind => <button key={kind} type="button" className="soft-button" disabled={drafts.length >= maxQuestions}
           onClick={() => onChange([...drafts, { id: crypto.randomUUID(), kind, prompt: '', options: kind === 'text' ? [] : ['', '', '', ''] }])}>
           {kind === 'text' ? 'Thêm tự luận' : 'Thêm trắc nghiệm'}
         </button>)}
@@ -21,6 +21,12 @@ export default function QuizBuilder({ drafts, onChange }: { drafts: QuizQuestion
       <label>Nội dung câu {q.number || i + 1}
         <textarea rows={3} value={q.prompt} maxLength={3000} onChange={e => update(i, { prompt: e.target.value })} />
       </label>
+      <div className="growth-fields">
+        <label>Unit<input value={q.unit || ''} maxLength={120} onChange={e => update(i, {unit:e.target.value})}/></label>
+        <label>Chủ đề kiến thức<input value={q.topic || ''} maxLength={120} placeholder="Ví dụ: Hiện tại đơn" onChange={e => update(i, {topic:e.target.value})}/></label>
+        <label>Độ khó<select value={q.difficulty || 'medium'} onChange={e => update(i, {difficulty:e.target.value as QuizQuestion['difficulty']})}><option value="easy">Dễ</option><option value="medium">Vừa</option><option value="hard">Khó</option></select></label>
+      </div>
+      <label>Giải thích đáp án<textarea value={q.explanation || ''} maxLength={3000} onChange={e => update(i, {explanation:e.target.value})}/></label>
       {q.section !== undefined && <label>Tên phần<input value={q.section} maxLength={300} onChange={e => update(i, { section: e.target.value })} /></label>}
       {q.context !== undefined && <label>Hướng dẫn / đoạn đọc của câu này<textarea rows={5} value={q.context} maxLength={15000} onChange={e => update(i, { context: e.target.value })} /></label>}
       {q.kind !== 'text' && <>

@@ -23,6 +23,10 @@ export type Session = {
 };
 export type Attendance = { session_id: number; student_id: number; status: string; focus: number; homework: number; note: string };
 export type QuizQuestion = {
+  unit?: string;
+  topic?: string;
+  difficulty?: 'easy' | 'medium' | 'hard';
+  explanation?: string;
   id: string;
   prompt: string;
   options: string[];

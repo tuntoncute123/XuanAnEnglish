@@ -1,4 +1,4 @@
-import { all, get, parseJsonSafe, run } from './db';
+import { all, get, parseJsonSafe, transaction } from './db';
 import { cleanupUnreferencedFiles, parseAttachmentsJson } from './files';
 import { getVapidConfig } from './push';
 import { addDays } from './schedule';
@@ -131,8 +131,8 @@ export async function buildStudentPortalData(student: StudentCore): Promise<Stud
   const assignments: StudentAssignment[] = assignmentsRaw.map(a => {
     const parsedQuestions = parseJsonSafe<QuizQuestion[]>(a.questions, []);
     const hasSubmitted = submittedIds.has(Number(a.id));
-    const safeQuestions: StudentQuizQuestion[] = parsedQuestions.map(({ correctIndex, ...q }) =>
-      hasSubmitted ? { ...q, correctIndex } : q,
+    const safeQuestions: StudentQuizQuestion[] = parsedQuestions.map(({ correctIndex, explanation, ...q }) =>
+      hasSubmitted ? { ...q, correctIndex, explanation } : q,
     );
     return {
       id: Number(a.id),
@@ -284,31 +284,37 @@ export async function submitStudentHomework(
   }
 
   const primaryFileId = attachments[0]?.id || null;
-  await run(
-    `INSERT INTO submissions(assignment_id, student_id, answer, file_id, attachments, quiz_answers, text_answers, submitted_at, feedback, score, status)
-     VALUES(?,?,?,?,?,?,?,?,?,?,?)
-     ON CONFLICT(assignment_id, student_id) DO UPDATE SET
-       answer=excluded.answer,
-       file_id=excluded.file_id,
-       attachments=excluded.attachments,
-       quiz_answers=excluded.quiz_answers,
-       text_answers=excluded.text_answers,
-       submitted_at=excluded.submitted_at,
-       feedback='',
-       score=excluded.score,
-       status='submitted'`,
-    input.assignment_id,
-    student.id,
-    input.answer,
-    primaryFileId,
-    JSON.stringify(attachments),
-    JSON.stringify(quizAnswers),
-    JSON.stringify(textAnswers),
-    new Date().toISOString(),
-    '',
-    autoScore,
-    'submitted',
-  );
+  await transaction(async client => {
+    await client.run('SELECT pg_advisory_xact_lock(823761430,?)', student.id);
+    const previous = (await client.run('SELECT status FROM submissions WHERE assignment_id=? AND student_id=?', input.assignment_id, student.id)).rows[0];
+    await client.run(
+      `INSERT INTO submissions(assignment_id, student_id, answer, file_id, attachments, quiz_answers, text_answers, submitted_at, feedback, score, status)
+       VALUES(?,?,?,?,?,?,?,?,?,?,?)
+       ON CONFLICT(assignment_id, student_id) DO UPDATE SET
+         answer=excluded.answer,
+         file_id=excluded.file_id,
+         attachments=excluded.attachments,
+         quiz_answers=excluded.quiz_answers,
+         text_answers=excluded.text_answers,
+         submitted_at=excluded.submitted_at,
+         feedback='',
+         score=excluded.score,
+         status='submitted'`,
+      input.assignment_id,
+      student.id,
+      input.answer,
+      primaryFileId,
+      JSON.stringify(attachments),
+      JSON.stringify(quizAnswers),
+      JSON.stringify(textAnswers),
+      new Date().toISOString(),
+      '',
+      autoScore,
+      'submitted',
+    );
+
+    await client.run('INSERT INTO learning_attempts(student_id,assignment_id,questions,answers,created_at,revised) VALUES(?,?,?::jsonb,?::jsonb,?,?)', student.id, input.assignment_id, JSON.stringify(questions), JSON.stringify(quizAnswers), new Date().toISOString(), previous?.status === 'needs_revision');
+  });
 
   const removedIds = previousIds.filter(id => !mergedIds.includes(id));
   if (removedIds.length > 0) {
